@@ -3,7 +3,6 @@ package com.project.realtimechatui;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
 
@@ -14,8 +13,9 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.project.realtimechatui.api.ApiClient;
-import com.project.realtimechatui.api.models.AuthResponse;
 import com.project.realtimechatui.api.models.LoginRequest;
+import com.project.realtimechatui.api.models.LoginResponse;
+import com.project.realtimechatui.api.models.User;
 import com.project.realtimechatui.databinding.ActivityLoginBinding;
 import com.project.realtimechatui.utils.SharedPrefManager;
 
@@ -93,40 +93,35 @@ public class LoginActivity extends AppCompatActivity {
         LoginRequest loginRequest = new LoginRequest(username, password);
 
         // Make API call
-        ApiClient.getApiService().login(loginRequest).enqueue(new Callback<AuthResponse>() {
+        ApiClient.getApiService().login(loginRequest).enqueue(new Callback<LoginResponse>() {
             @Override
-            public void onResponse(Call<AuthResponse> call, Response<AuthResponse> response) {
+            public void onResponse(Call<LoginResponse> call, Response<LoginResponse> response) {
                 setLoading(false);
 
                 if (response.isSuccessful() && response.body() != null) {
-                    AuthResponse authResponse = response.body();
+                    LoginResponse loginResponse = response.body();
+                    User user = loginResponse.getData().getUser();
 
-                    // Log access token
-                    Log.d("RegisterActivity", "AccessToken: " + authResponse.getAccessToken());
-
-                    // Log refresh token
-                    Log.d("RegisterActivity", "RefreshToken: " + authResponse.getRefreshToken());
-
-                    if (authResponse.getStatusCode() == 200) {
+                    if (loginResponse.getStatusCode() == 200) {
                         // Save auth data
                         sharedPrefManager.saveAuthData(
-                                authResponse.getAccessToken(),
-                                authResponse.getRefreshToken(),
-                                authResponse.getUser()
+                                loginResponse.getData().getAccessToken(),
+                                loginResponse.getData().getRefreshToken(),
+                                user
                         );
 
                         Toast.makeText(LoginActivity.this, "Login successful", Toast.LENGTH_SHORT).show();
                         navigateToMain();
                     } else {
-                        showError(authResponse.getMessage() != null ? authResponse.getMessage() : "Login failed");
+                        showError(loginResponse.getMessage() != null ? loginResponse.getMessage() : "Login failed");
                     }
                 } else {
-                    showError("Login failed. Please check your credentials.");
+                    showError("Error Connection: Please check your connection and try again.");
                 }
             }
 
             @Override
-            public void onFailure(Call<AuthResponse> call, Throwable t) {
+            public void onFailure(Call<LoginResponse> call, Throwable t) {
                 setLoading(false);
                 showError("Network error. Please check your connection.");
             }

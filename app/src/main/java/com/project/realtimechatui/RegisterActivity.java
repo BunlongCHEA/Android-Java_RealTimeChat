@@ -1,8 +1,6 @@
 package com.project.realtimechatui;
 
-import android.content.Intent;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
 
@@ -13,8 +11,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.project.realtimechatui.api.ApiClient;
-import com.project.realtimechatui.api.models.AuthResponse;
 import com.project.realtimechatui.api.models.RegisterRequest;
+import com.project.realtimechatui.api.models.RegisterResponse;
 import com.project.realtimechatui.databinding.ActivityRegisterBinding;
 import com.project.realtimechatui.utils.SharedPrefManager;
 import com.project.realtimechatui.utils.ValidationUtils;
@@ -115,22 +113,15 @@ public class RegisterActivity extends AppCompatActivity {
         RegisterRequest registerRequest = new RegisterRequest(username, email, password, fullName);
 
         // Make API call
-        ApiClient.getApiService().register(registerRequest).enqueue(new Callback<AuthResponse>() {
+        ApiClient.getApiService().register(registerRequest).enqueue(new Callback<RegisterResponse>() {
             @Override
-            public void onResponse(Call<AuthResponse> call, Response<AuthResponse> response) {
+            public void onResponse(Call<RegisterResponse> call, Response<RegisterResponse> response) {
                 setLoading(false);
 
                 if (response.isSuccessful() && response.body() != null) {
-                    AuthResponse authResponse = response.body();
+                    RegisterResponse authResponse = response.body();
 
                     if (authResponse.getStatusCode() == 201) {
-                        // Save authentication data
-                        sharedPrefManager.saveAuthData(
-                                authResponse.getAccessToken(),
-                                authResponse.getRefreshToken(),
-                                authResponse.getUser()
-                        );
-
                         showSuccess("Registration successful! Welcome to RealTime Chat!");
 
                         // Go back to LoginActivity
@@ -142,7 +133,7 @@ public class RegisterActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onFailure(Call<AuthResponse> call, Throwable t) {
+            public void onFailure(Call<RegisterResponse> call, Throwable t) {
                 setLoading(false);
                 showError("Error Connection: Please check your connection and try again.");
             }

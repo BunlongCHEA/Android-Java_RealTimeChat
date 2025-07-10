@@ -10,12 +10,12 @@ public class Constants {
 
     // SharedPreferences Keys
     public static final String PREF_NAME = "RealtimeChatPrefs";
-    public static final String KEY_AUTH_TOKEN = "auth_token";
+    public static final String KEY_ACCESS_TOKEN = "access_token";
     public static final String KEY_REFRESH_TOKEN = "refresh_token";
-    public static final String KEY_USER_ID = "user_id";
+    public static final String KEY_USER_ID = "id";
     public static final String KEY_USERNAME = "username";
     public static final String KEY_EMAIL = "email";
-    public static final String KEY_DISPLAY_NAME = "display_name";
+    public static final String KEY_FULL_NAME = "full_name";
     public static final String KEY_IS_LOGGED_IN = "is_logged_in";
 
     // Request Codes

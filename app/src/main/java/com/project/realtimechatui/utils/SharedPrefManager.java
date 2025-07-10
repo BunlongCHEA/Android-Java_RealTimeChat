@@ -31,18 +31,18 @@ public class SharedPrefManager {
 
     public void saveAuthData(String token, String refreshToken, User user) {
         SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.putString(Constants.KEY_AUTH_TOKEN, token);
+        editor.putString(Constants.KEY_ACCESS_TOKEN, token);
         editor.putString(Constants.KEY_REFRESH_TOKEN, refreshToken);
         editor.putLong(Constants.KEY_USER_ID, user.getId());
         editor.putString(Constants.KEY_USERNAME, user.getUsername());
         editor.putString(Constants.KEY_EMAIL, user.getEmail());
-        editor.putString(Constants.KEY_DISPLAY_NAME, user.getFullName());
+        editor.putString(Constants.KEY_FULL_NAME, user.getFullName());
         editor.putBoolean(Constants.KEY_IS_LOGGED_IN, true);
         editor.apply();
     }
 
     public String getAuthToken() {
-        return sharedPreferences.getString(Constants.KEY_AUTH_TOKEN, null);
+        return sharedPreferences.getString(Constants.KEY_ACCESS_TOKEN, null);
     }
 
     public String getRefreshToken() {
@@ -62,7 +62,7 @@ public class SharedPrefManager {
     }
 
     public String getFullName() {
-        return sharedPreferences.getString(Constants.KEY_DISPLAY_NAME, null);
+        return sharedPreferences.getString(Constants.KEY_FULL_NAME, null);
     }
 
     public boolean isLoggedIn() {
@@ -71,12 +71,12 @@ public class SharedPrefManager {
 
     public void clearAuthData() {
         SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.remove(Constants.KEY_AUTH_TOKEN);
+        editor.remove(Constants.KEY_ACCESS_TOKEN);
         editor.remove(Constants.KEY_REFRESH_TOKEN);
         editor.remove(Constants.KEY_USER_ID);
         editor.remove(Constants.KEY_USERNAME);
         editor.remove(Constants.KEY_EMAIL);
-        editor.remove(Constants.KEY_DISPLAY_NAME);
+        editor.remove(Constants.KEY_FULL_NAME);
         editor.putBoolean(Constants.KEY_IS_LOGGED_IN, false);
         editor.apply();
     }
