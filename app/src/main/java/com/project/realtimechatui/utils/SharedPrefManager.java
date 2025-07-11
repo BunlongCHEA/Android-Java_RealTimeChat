@@ -45,11 +45,19 @@ public class SharedPrefManager {
         return sharedPreferences.getString(Constants.KEY_ACCESS_TOKEN, null);
     }
 
+    public String getAccessToken() {
+        return sharedPreferences.getString(Constants.KEY_ACCESS_TOKEN, null);
+    }
+
     public String getRefreshToken() {
         return sharedPreferences.getString(Constants.KEY_REFRESH_TOKEN, null);
     }
 
     public Long getId() {
+        return sharedPreferences.getLong(Constants.KEY_USER_ID, -1L);
+    }
+
+    public Long getUserId() {
         return sharedPreferences.getLong(Constants.KEY_USER_ID, -1L);
     }
 
