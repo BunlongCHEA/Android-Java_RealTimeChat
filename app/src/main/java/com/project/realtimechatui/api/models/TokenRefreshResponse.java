@@ -1,21 +1,17 @@
 package com.project.realtimechatui.api.models;
 
-import com.google.gson.annotations.SerializedName;
-
-public class LoginResponse {
+public class TokenRefreshResponse {
     private String accessToken;
     private String refreshToken;
-    private User user;
 
     // Default constructor
-    public LoginResponse() {
+    public TokenRefreshResponse() {
     }
 
     // Constructor with parameters
-    public LoginResponse(String accessToken, String refreshToken, User user) {
+    public TokenRefreshResponse(String accessToken, String refreshToken) {
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
-        this.user = user;
     }
 
     // Getters and Setters
@@ -35,20 +31,11 @@ public class LoginResponse {
         this.refreshToken = refreshToken;
     }
 
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
     @Override
     public String toString() {
-        return "LoginResponse{" +
+        return "TokenRefreshResponse{" +
                 "accessToken='" + accessToken + '\'' +
                 ", refreshToken='" + refreshToken + '\'' +
-                ", user=" + user +
                 '}';
     }
 }

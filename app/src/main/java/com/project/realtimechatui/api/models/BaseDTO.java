@@ -1,16 +1,19 @@
 package com.project.realtimechatui.api.models;
 
-public class BaseDTO {
+public class BaseDTO<T> {
     private int statusCode;
     private String message;
-    private String timestamp;
+    private T data;
 
-    public String getTimestamp() {
-        return timestamp;
+    // Default constructor
+    public BaseDTO() {
     }
 
-    public void setTimestamp(String timestamp) {
-        this.timestamp = timestamp;
+    // Constructor with parameters
+    public BaseDTO(int statusCode, String message, T data) {
+        this.statusCode = statusCode;
+        this.message = message;
+        this.data = data;
     }
 
     public String getMessage() {
@@ -27,5 +30,35 @@ public class BaseDTO {
 
     public void setStatusCode(int statusCode) {
         this.statusCode = statusCode;
+    }
+
+    public T getData() {
+        return data;
+    }
+
+    public void setData(T data) {
+        this.data = data;
+    }
+
+    // Utility methods for checking response status
+    public boolean isSuccess() {
+        return statusCode >= 200 && statusCode < 300;
+    }
+
+    public boolean isClientError() {
+        return statusCode >= 400 && statusCode < 500;
+    }
+
+    public boolean isServerError() {
+        return statusCode >= 500;
+    }
+
+    @Override
+    public String toString() {
+        return "BaseDTO{" +
+                "statusCode=" + statusCode +
+                ", message='" + message + '\'' +
+                ", data=" + data +
+                '}';
     }
 }

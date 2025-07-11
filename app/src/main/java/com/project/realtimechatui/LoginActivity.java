@@ -13,6 +13,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.project.realtimechatui.api.ApiClient;
+import com.project.realtimechatui.api.models.BaseDTO;
 import com.project.realtimechatui.api.models.LoginRequest;
 import com.project.realtimechatui.api.models.LoginResponse;
 import com.project.realtimechatui.api.models.User;
@@ -93,27 +94,31 @@ public class LoginActivity extends AppCompatActivity {
         LoginRequest loginRequest = new LoginRequest(username, password);
 
         // Make API call
-        ApiClient.getApiService().login(loginRequest).enqueue(new Callback<LoginResponse>() {
+        ApiClient.getApiService().login(loginRequest).enqueue(new Callback<BaseDTO<LoginResponse>>() {
             @Override
-            public void onResponse(Call<LoginResponse> call, Response<LoginResponse> response) {
+            public void onResponse(Call<BaseDTO<LoginResponse>> call, Response<BaseDTO<LoginResponse>> response) {
                 setLoading(false);
 
                 if (response.isSuccessful() && response.body() != null) {
-                    LoginResponse loginResponse = response.body();
-                    User user = loginResponse.getData().getUser();
+                    BaseDTO<LoginResponse> baseResponse = response.body();
 
-                    if (loginResponse.getStatusCode() == 200) {
+                    if (baseResponse.isSuccess() && baseResponse.getData() != null) {
+                        LoginResponse loginResponse = baseResponse.getData();
+                        User user = loginResponse.getUser();
                         // Save auth data
                         sharedPrefManager.saveAuthData(
-                                loginResponse.getData().getAccessToken(),
-                                loginResponse.getData().getRefreshToken(),
+                                loginResponse.getAccessToken(),
+                                loginResponse.getRefreshToken(),
                                 user
                         );
 
                         Toast.makeText(LoginActivity.this, "Login successful", Toast.LENGTH_SHORT).show();
                         navigateToMain();
                     } else {
-                        showError(loginResponse.getMessage() != null ? loginResponse.getMessage() : "Login failed");
+                        // Handle API-level errors (from BaseDTO)
+                        String errorMessage = baseResponse.getMessage() != null ?
+                                baseResponse.getMessage() : "Login failed";
+                        showError(errorMessage);
                     }
                 } else {
                     showError("Error Connection: Please check your connection and try again.");
@@ -121,7 +126,7 @@ public class LoginActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onFailure(Call<LoginResponse> call, Throwable t) {
+            public void onFailure(Call<BaseDTO<LoginResponse>> call, Throwable t) {
                 setLoading(false);
                 showError("Network error. Please check your connection.");
             }

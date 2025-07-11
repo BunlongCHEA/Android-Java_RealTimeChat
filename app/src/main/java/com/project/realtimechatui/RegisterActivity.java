@@ -11,6 +11,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.project.realtimechatui.api.ApiClient;
+import com.project.realtimechatui.api.models.BaseDTO;
+import com.project.realtimechatui.api.models.LoginResponse;
 import com.project.realtimechatui.api.models.RegisterRequest;
 import com.project.realtimechatui.api.models.RegisterResponse;
 import com.project.realtimechatui.databinding.ActivityRegisterBinding;
@@ -113,15 +115,15 @@ public class RegisterActivity extends AppCompatActivity {
         RegisterRequest registerRequest = new RegisterRequest(username, email, password, fullName);
 
         // Make API call
-        ApiClient.getApiService().register(registerRequest).enqueue(new Callback<RegisterResponse>() {
+        ApiClient.getApiService().register(registerRequest).enqueue(new Callback<BaseDTO<RegisterResponse>>() {
             @Override
-            public void onResponse(Call<RegisterResponse> call, Response<RegisterResponse> response) {
+            public void onResponse(Call<BaseDTO<RegisterResponse>> call, Response<BaseDTO<RegisterResponse>> response) {
                 setLoading(false);
 
                 if (response.isSuccessful() && response.body() != null) {
-                    RegisterResponse authResponse = response.body();
+                    BaseDTO<RegisterResponse> baseResponse = response.body();
 
-                    if (authResponse.getStatusCode() == 201) {
+                    if (baseResponse.isSuccess() && baseResponse.getData() != null) {
                         showSuccess("Registration successful! Welcome to RealTime Chat!");
 
                         // Go back to LoginActivity
@@ -133,7 +135,7 @@ public class RegisterActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onFailure(Call<RegisterResponse> call, Throwable t) {
+            public void onFailure(Call<BaseDTO<RegisterResponse>> call, Throwable t) {
                 setLoading(false);
                 showError("Error Connection: Please check your connection and try again.");
             }

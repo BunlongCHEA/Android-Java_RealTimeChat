@@ -44,7 +44,7 @@ public class ApiClient {
                     }
 
                     // Add authorization header for other endpoints
-                    String token = SharedPrefManager.getInstance().getAuthToken();
+                    String token = SharedPrefManager.getInstance().getAccessToken();
                     if (token != null && !token.isEmpty()) {
                         Request.Builder builder = originalRequest.newBuilder()
                                 .addHeader("Authorization", "Bearer " + token)

@@ -41,7 +41,7 @@ public class SharedPrefManager {
         editor.apply();
     }
 
-    public String getAuthToken() {
+    public String getAccessToken() {
         return sharedPreferences.getString(Constants.KEY_ACCESS_TOKEN, null);
     }
 

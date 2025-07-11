@@ -48,8 +48,16 @@ dependencies {
     // Additional Android dependencies
     implementation(libs.lifecycle.livedata.ktx)
     implementation(libs.lifecycle.viewmodel.ktx)
+
+    // Scrollable list view in chat
     implementation(libs.recyclerview)
-    implementation(libs.swiperefreshlayout)
+    //implementation(libs.swiperefreshlayout)
+
+    // For circle user profile
+    implementation (libs.circleimageview)
+
+    // Supports fetching, decoding, and displaying video stills, images, and animated GIFs
+    implementation (libs.glide)
 
     // Network dependencies for API communication
     implementation(libs.retrofit)
@@ -63,6 +71,7 @@ dependencies {
     // WebSocket for real-time chat
     implementation(libs.java.websocket)
 
+    // Core Android Testing dependencies
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
