@@ -139,11 +139,11 @@ public class MainActivity extends AppCompatActivity implements ChatWebSocketClie
             
             // Update status color
             if (status.equals(getString(R.string.connected))) {
-                binding.tvConnectionStatus.setTextColor(getColor(R.color.colorAccent));
+                binding.tvConnectionStatus.setTextColor(getResources().getColor(R.color.colorAccent));
             } else if (status.equals(getString(R.string.connecting))) {
-                binding.tvConnectionStatus.setTextColor(getColor(R.color.colorPrimary));
+                binding.tvConnectionStatus.setTextColor(getResources().getColor(R.color.colorPrimary));
             } else {
-                binding.tvConnectionStatus.setTextColor(getColor(android.R.color.holo_red_dark));
+                binding.tvConnectionStatus.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
             }
         });
     }
