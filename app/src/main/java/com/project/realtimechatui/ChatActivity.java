@@ -1,12 +1,8 @@
 package com.project.realtimechatui;
 
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
-
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -16,24 +12,32 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.project.realtimechatui.adapters.ChatMessageAdapter;
 import com.project.realtimechatui.api.ApiClient;
 import com.project.realtimechatui.api.ApiService;
-import com.project.realtimechatui.api.models.BaseDTO;
+import com.project.realtimechatui.api.models.BaseResponse;
 import com.project.realtimechatui.api.models.ChatMessage;
 import com.project.realtimechatui.api.models.ChatRoom;
-import com.project.realtimechatui.api.models.Participant;
+import com.project.realtimechatui.api.models.CreateChatRoomRequest;
 import com.project.realtimechatui.utils.Constants;
 import com.project.realtimechatui.utils.SharedPrefManager;
 import com.project.realtimechatui.websocket.WebSocketChatManager;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import retrofit2.Call;
@@ -46,7 +50,7 @@ public class ChatActivity extends AppCompatActivity implements
 
     private static final String TAG = "ChatActivity";
 
-    private TextView tvUserName, tvUserStatus, tvConnectionStatus;
+    private TextView tvUserName, tvUserStatus, tvConnectionStatus, tvTypingIndicator;
     private ImageView ivBack, ivUserProfile;
     private RecyclerView rvMessages;
     private EditText etMessage;
@@ -63,6 +67,9 @@ public class ChatActivity extends AppCompatActivity implements
     private SharedPrefManager sharedPrefManager;
     private ChatMessageAdapter messageAdapter;
     private LinearLayoutManager layoutManager;
+    private Handler typingHandler;
+    private Set<String> typingUsers;
+    private boolean isTyping = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,6 +83,8 @@ public class ChatActivity extends AppCompatActivity implements
         });
 
         sharedPrefManager = SharedPrefManager.getInstance();
+        typingHandler = new Handler(Looper.getMainLooper());
+        typingUsers = new HashSet<>();
 
         initViews();
         getIntentData();
@@ -92,6 +101,7 @@ public class ChatActivity extends AppCompatActivity implements
         tvUserName = findViewById(R.id.tvUserName);
         tvUserStatus = findViewById(R.id.tvUserStatus);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
+        tvTypingIndicator = findViewById(R.id.tvTypingIndicator);
         ivBack = findViewById(R.id.ivBack);
         ivUserProfile = findViewById(R.id.ivUserProfile);
         rvMessages = findViewById(R.id.rvMessages);
@@ -99,6 +109,12 @@ public class ChatActivity extends AppCompatActivity implements
         cvSend = findViewById(R.id.cvSend);
 
         ivBack.setOnClickListener(v -> finish());
+
+        // Initially hide typing indicator
+        tvTypingIndicator.setVisibility(View.GONE);
+
+        // Update connection status
+        updateConnectionStatus(Constants.CONNECTION_STATE_CONNECTING);
     }
 
     private void getIntentData() {
@@ -136,7 +152,10 @@ public class ChatActivity extends AppCompatActivity implements
         webSocketManager = WebSocketChatManager.getInstance();
         webSocketManager.setMessageListener(this);
         webSocketManager.setConnectionListener(this);
-        webSocketManager.connect();
+
+        if (!webSocketManager.isConnected()) {
+            webSocketManager.connect();
+        }
     }
 
     private void setupApiService() {
@@ -144,31 +163,206 @@ public class ChatActivity extends AppCompatActivity implements
     }
 
     private void setupMessageInput() {
-        cvSend.setOnClickListener(v -> sendMessage());
-
-        // Handle Enter key to send message
-        etMessage.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
-                sendMessage();
-                return true;
+        // Send button click listener
+        cvSend.setOnClickListener(v -> {
+            String messageText = etMessage.getText().toString().trim();
+            if (!messageText.isEmpty()) {
+                sendMessage(messageText);
+                etMessage.setText("");
             }
-            return false;
         });
 
+        // Typing indicator
         etMessage.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (chatRoomId != null) {
-                    boolean isTyping = s.length() > 0;
-                    webSocketManager.sendTypingIndicator(chatRoomId, sharedPrefManager.getId(), isTyping);
+                if (!isTyping && s.length() > 0) {
+                    isTyping = true;
+                    webSocketManager.sendTypingIndicator(true);
                 }
             }
 
             @Override
-            public void afterTextChanged(Editable s) {}
+            public void afterTextChanged(Editable s) {
+                if (s.length() == 0 && isTyping) {
+                    isTyping = false;
+                    webSocketManager.sendTypingIndicator(false);
+                }
+            }
+        });
+    }
+
+    private void findExistingChatRoom() {
+        if (targetUserId == null || targetUserId == -1) {
+            Log.e(TAG, "Invalid target user ID");
+            showError("Invalid user selected");
+            return;
+        }
+
+        List<Long> participantIds = new ArrayList<>();
+        participantIds.add(sharedPrefManager.getUserId());
+        participantIds.add(targetUserId);
+
+        Call<BaseResponse<ChatRoom>> call = apiService.findChatRoomByParticipants(participantIds);
+        call.enqueue(new Callback<BaseResponse<ChatRoom>>() {
+            @Override
+            public void onResponse(Call<BaseResponse<ChatRoom>> call, Response<BaseResponse<ChatRoom>> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    BaseResponse<ChatRoom> baseResponse = response.body();
+                    if (baseResponse.getStatus() == 200 && baseResponse.getData() != null) {
+                        // Chat room exists
+                        chatRoomId = baseResponse.getData().getId();
+                        Log.d(TAG, "Found existing chat room: " + chatRoomId);
+                        joinChatRoom();
+                        loadChatHistory();
+                    } else {
+                        // Chat room doesn't exist, create new one
+                        Log.d(TAG, "Chat room not found, creating new one");
+                        createNewChatRoom();
+                    }
+                } else {
+                    Log.e(TAG, "Error finding chat room: " + response.message());
+                    createNewChatRoom();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<BaseResponse<ChatRoom>> call, Throwable t) {
+                Log.e(TAG, "Network error finding chat room", t);
+                createNewChatRoom();
+            }
+        });
+    }
+
+    private void createNewChatRoom() {
+        CreateChatRoomRequest request = new CreateChatRoomRequest();
+        request.setName("Chat with " + targetUsername);
+        request.setType(Constants.ROOM_TYPE_PERSONAL);
+        request.setDescription("Personal chat room");
+
+        List<Long> participantIds = new ArrayList<>();
+        participantIds.add(sharedPrefManager.getUserId());
+        participantIds.add(targetUserId);
+        request.setParticipantIds(participantIds);
+
+        Call<BaseResponse<ChatRoom>> call = apiService.createChatRoom(request);
+        call.enqueue(new Callback<BaseResponse<ChatRoom>>() {
+            @Override
+            public void onResponse(Call<BaseResponse<ChatRoom>> call, Response<BaseResponse<ChatRoom>> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    BaseResponse<ChatRoom> baseResponse = response.body();
+                    if (baseResponse.getStatus() == 201 && baseResponse.getData() != null) {
+                        chatRoomId = baseResponse.getData().getId();
+                        Log.d(TAG, "Created new chat room: " + chatRoomId);
+                        joinChatRoom();
+                    } else {
+                        Log.e(TAG, "Error creating chat room: " + baseResponse.getMessage());
+                        showError("Failed to create chat room");
+                    }
+                } else {
+                    Log.e(TAG, "Error creating chat room: " + response.message());
+                    showError("Failed to create chat room");
+                }
+            }
+
+            @Override
+            public void onFailure(Call<BaseResponse<ChatRoom>> call, Throwable t) {
+                Log.e(TAG, "Network error creating chat room", t);
+                showError("Network error creating chat room");
+            }
+        });
+    }
+
+    private void joinChatRoom() {
+        if (chatRoomId != null && webSocketManager.isConnected()) {
+            webSocketManager.joinChatRoom(chatRoomId);
+            updateConnectionStatus(Constants.CONNECTION_STATE_CONNECTED);
+        } else {
+            Log.w(TAG, "Cannot join chat room: chatRoomId=" + chatRoomId +
+                    ", connected=" + webSocketManager.isConnected());
+        }
+    }
+
+    private void loadChatHistory() {
+        if (chatRoomId == null) return;
+
+        Call<BaseResponse<Page<ChatMessage>>> call = apiService.getMessagesByChatRoomId(chatRoomId, 0, 50);
+        call.enqueue(new Callback<BaseResponse<Page<ChatMessage>>>() {
+            @Override
+            public void onResponse(Call<BaseResponse<Page<ChatMessage>>> call,
+                                   Response<BaseResponse<Page<ChatMessage>>> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    BaseResponse<Page<ChatMessage>> baseResponse = response.body();
+                    if (baseResponse.getStatus() == 200 && baseResponse.getData() != null) {
+                        List<ChatMessage> messages = baseResponse.getData().getContent();
+                        runOnUiThread(() -> {
+                            messageAdapter.updateMessages(messages);
+                            scrollToBottom();
+                        });
+                        Log.d(TAG, "Loaded " + messages.size() + " messages");
+                    }
+                } else {
+                    Log.e(TAG, "Error loading chat history: " + response.message());
+                }
+            }
+
+            @Override
+            public void onFailure(Call<BaseResponse<Page<ChatMessage>>> call, Throwable t) {
+                Log.e(TAG, "Network error loading chat history", t);
+            }
+        });
+    }
+
+    private void sendMessage(String content) {
+        if (webSocketManager.isConnected() && chatRoomId != null) {
+            webSocketManager.sendMessage(content);
+        } else {
+            showError("Not connected to chat");
+        }
+    }
+
+    private void updateConnectionStatus(String status) {
+        runOnUiThread(() -> {
+            switch (status) {
+                case Constants.CONNECTION_STATE_CONNECTING:
+                    tvConnectionStatus.setText("Connecting...");
+                    tvConnectionStatus.setTextColor(getColor(android.R.color.holo_orange_light));
+                    break;
+                case Constants.CONNECTION_STATE_CONNECTED:
+                    tvConnectionStatus.setText("Connected");
+                    tvConnectionStatus.setTextColor(getColor(android.R.color.holo_green_light));
+                    break;
+                case Constants.CONNECTION_STATE_DISCONNECTED:
+                    tvConnectionStatus.setText("Disconnected");
+                    tvConnectionStatus.setTextColor(getColor(android.R.color.holo_red_light));
+                    break;
+                case Constants.CONNECTION_STATE_ERROR:
+                    tvConnectionStatus.setText("Connection Error");
+                    tvConnectionStatus.setTextColor(getColor(android.R.color.holo_red_light));
+                    break;
+            }
+        });
+    }
+
+    private void updateTypingIndicator() {
+        runOnUiThread(() -> {
+            if (typingUsers.isEmpty()) {
+                tvTypingIndicator.setVisibility(View.GONE);
+            } else {
+                String typingText;
+                if (typingUsers.size() == 1) {
+                    typingText = typingUsers.iterator().next() + " is typing...";
+                } else if (typingUsers.size() == 2) {
+                    typingText = String.join(" and ", typingUsers) + " are typing...";
+                } else {
+                    typingText = "Several people are typing...";
+                }
+                tvTypingIndicator.setText(typingText);
+                tvTypingIndicator.setVisibility(View.VISIBLE);
+            }
         });
     }
 
@@ -178,336 +372,86 @@ public class ChatActivity extends AppCompatActivity implements
         }
     }
 
-    // Try to find existing chat room first before creating new one
-    private void findExistingChatRoom() {
-        Log.d(TAG, "Looking for existing chat rooms...");
-
-        Call<BaseDTO<List<ChatRoom>>> call = apiService.getChatRooms();
-        call.enqueue(new Callback<BaseDTO<List<ChatRoom>>>() {
-            @Override
-            public void onResponse(Call<BaseDTO<List<ChatRoom>>> call, Response<BaseDTO<List<ChatRoom>>> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    BaseDTO<List<ChatRoom>> result = response.body();
-                    if (result.isSuccess() && result.getData() != null) {
-
-                        // Look for existing personal chat with this user
-                        ChatRoom existingRoom = findPersonalChatRoom(result.getData());
-
-                        if (existingRoom != null) {
-                            Log.d(TAG, "Found existing chat room: " + existingRoom.getId());
-                            chatRoomId = existingRoom.getId();
-                            joinWebSocketRoom();
-                            loadMessages();
-                        } else {
-                            Log.d(TAG, "No existing chat room found, creating new one...");
-                            createOrGetChatRoom();
-                        }
-                    } else {
-                        Log.e(TAG, "Failed to get chat rooms: " + result.getMessage());
-                        createOrGetChatRoom();
-                    }
-                } else {
-                    Log.e(TAG, "Failed to get chat rooms. Code: " + response.code());
-                    if (response.code() == 401) {
-                        handleUnauthorized();
-                    } else {
-                        createOrGetChatRoom();
-                    }
-                }
-            }
-
-            @Override
-            public void onFailure(Call<BaseDTO<List<ChatRoom>>> call, Throwable t) {
-                Log.e(TAG, "Network error getting chat rooms: " + t.getMessage());
-                createOrGetChatRoom();
-            }
-        });
+    private void showError(String message) {
+        runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
     }
 
-    private ChatRoom findPersonalChatRoom(List<ChatRoom> chatRooms) {
-        Long currentUserId = sharedPrefManager.getId();
-
-        for (ChatRoom room : chatRooms) {
-            if (Constants.ROOM_TYPE_PERSONAL.equals(room.getType()) && room.getParticipants() != null) {
-                // Check if this personal chat contains both current user and target user
-                boolean hasCurrentUser = false;
-                boolean hasTargetUser = false;
-
-                for (Participant participant : room.getParticipants()) {
-                    if (participant.getUserId().equals(currentUserId)) {
-                        hasCurrentUser = true;
-                    }
-                    if (participant.getUserId().equals(targetUserId)) {
-                        hasTargetUser = true;
-                    }
-                }
-
-                if (hasCurrentUser && hasTargetUser) {
-                    return room;
-                }
-            }
-        }
-        return null;
-    }
-
-    private void createOrGetChatRoom() {
-        Log.d(TAG, "Creating new personal chat room...");
-
-        // Create a chat room with the selected user
-        ChatRoom chatRoom = new ChatRoom();
-        chatRoom.setName("Chat with " + targetUsername);
-        chatRoom.setType(Constants.ROOM_TYPE_PERSONAL);
-
-        // Create participants set with the target user
-        Set<Participant> participants = new HashSet<>();
-        Participant targetParticipant = new Participant(targetUserId, "MEMBER");
-        participants.add(targetParticipant);
-        chatRoom.setParticipants(participants);
-
-        Long currentUserId = sharedPrefManager.getId();
-        Log.d(TAG, "Current User ID: " + currentUserId);
-        Log.d(TAG, "Target User ID: " + targetUserId);
-        Log.d(TAG, "Creating room with name: " + chatRoom.getName());
-        Log.d(TAG, "Room type: " + chatRoom.getType());
-
-        Call<BaseDTO<ChatRoom>> call = apiService.createChatRoom(chatRoom, currentUserId);
-        call.enqueue(new Callback<BaseDTO<ChatRoom>>() {
-            @Override
-            public void onResponse(Call<BaseDTO<ChatRoom>> call, Response<BaseDTO<ChatRoom>> response) {
-                Log.d(TAG, "Create chat room response code: " + response.code());
-
-                if (response.isSuccessful() && response.body() != null) {
-                    BaseDTO<ChatRoom> result = response.body();
-                    if (result.isSuccess() && result.getData() != null) {
-                        chatRoomId = result.getData().getId();
-                        Log.d(TAG, "Chat room created successfully with ID: " + chatRoomId);
-                        joinWebSocketRoom();
-                        loadMessages();
-                        showSuccess("Chat started!");
-                    } else {
-                        Log.e(TAG, "Failed to create chat room: " + result.getMessage());
-                        showError("Failed to create chat room: " + result.getMessage());
-                    }
-                } else {
-                    Log.e(TAG, "Failed to create chat room. Response code: " + response.code());
-
-                    if (response.code() == 401) {
-                        handleUnauthorized();
-                    } else if (response.code() == 403) {
-                        showError("Permission denied. Please check your authentication.");
-                        Log.e(TAG, "403 Forbidden - Token might be invalid or expired");
-                    } else if (response.code() == 400) {
-                        showError("Bad request. Please check the data being sent.");
-                        Log.e(TAG, "400 Bad Request - Check request parameters");
-                    } else {
-                        showError("Failed to create chat room. Error: " + response.code());
-                    }
-                }
-            }
-
-            @Override
-            public void onFailure(Call<BaseDTO<ChatRoom>> call, Throwable t) {
-                Log.e(TAG, "Network error creating chat room: " + t.getMessage());
-                showError("Failed to create chat room: " + t.getMessage());
-            }
-        });
-    }
-
-    private void joinWebSocketRoom() {
-        if (chatRoomId != null && webSocketManager.isConnected()) {
-            webSocketManager.joinChatRoom(chatRoomId);
-        }
-    }
-
-    private void loadMessages() {
-        if (chatRoomId != null) {
-            Log.d(TAG, "Loading messages for room: " + chatRoomId);
-
-            Call<BaseDTO<List<ChatMessage>>> call = apiService.getChatMessages(chatRoomId);
-            call.enqueue(new Callback<BaseDTO<List<ChatMessage>>>() {
-                @Override
-                public void onResponse(Call<BaseDTO<List<ChatMessage>>> call, Response<BaseDTO<List<ChatMessage>>> response) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        BaseDTO<List<ChatMessage>> result = response.body();
-                        if (result.isSuccess() && result.getData() != null) {
-                            Log.d(TAG, "Loaded " + result.getData().size() + " messages");
-                            messageAdapter.setMessages(result.getData());
-                            scrollToBottom();
-                        } else {
-                            Log.e(TAG, "Failed to load messages: " + result.getMessage());
-                        }
-                    } else if (response.code() == 401) {
-                        handleUnauthorized();
-                    } else {
-                        Log.e(TAG, "Failed to load messages. Code: " + response.code());
-                    }
-                }
-
-                @Override
-                public void onFailure(Call<BaseDTO<List<ChatMessage>>> call, Throwable t) {
-                    Log.e(TAG, "Failed to load messages: " + t.getMessage());
-                    showError("Failed to load messages: " + t.getMessage());
-                }
-            });
-        }
-    }
-
-    private void sendMessage() {
-        String content = etMessage.getText().toString().trim();
-        if (!TextUtils.isEmpty(content) && chatRoomId != null) {
-            Log.d(TAG, "Sending message: " + content);
-
-            // Send via WebSocket for real-time delivery
-            webSocketManager.sendMessage(chatRoomId, content, sharedPrefManager.getId());
-
-            // Also send via API for persistence
-//            Call<BaseDTO<ChatMessage>> call = apiService.sendMessage(chatRoomId, sharedPrefManager.getId(), content);
-//            call.enqueue(new Callback<BaseDTO<ChatMessage>>() {
-//                @Override
-//                public void onResponse(Call<BaseDTO<ChatMessage>> call, Response<BaseDTO<ChatMessage>> response) {
-//                    if (response.isSuccessful() && response.body() != null) {
-//                        BaseDTO<ChatMessage> result = response.body();
-//                        if (result.isSuccess()) {
-//                            Log.d(TAG, "Message sent successfully");
-//                            // Add message to local list if not already added via WebSocket
-//                            if (result.getData() != null) {
-//                                messageAdapter.addMessage(result.getData());
-//                            }
-//                        } else {
-//                            Log.e(TAG, "Failed to send message: " + result.getMessage());
-//                            showError("Failed to send message: " + result.getMessage());
-//                        }
-//                    } else if (response.code() == 401) {
-//                        handleUnauthorized();
-//                    } else {
-//                        Log.e(TAG, "Failed to send message. Code: " + response.code());
-//                        showError("Failed to send message. Error: " + response.code());
-//                    }
-//                }
-//
-//                @Override
-//                public void onFailure(Call<BaseDTO<ChatMessage>> call, Throwable t) {
-//                    Log.e(TAG, "Failed to send message: " + t.getMessage());
-//                    showError("Failed to send message: " + t.getMessage());
-//                }
-//            });
-
-            etMessage.setText("");
-        } else if (chatRoomId == null) {
-            showError("Chat room not ready. Please wait...");
-        }
-    }
-
+    // WebSocket Message Listener Methods
     @Override
     public void onMessageReceived(ChatMessage message) {
         runOnUiThread(() -> {
-            if (message.getChatRoomId().equals(chatRoomId)) {
-                Log.d(TAG, "Received message via WebSocket: " + message.getContent());
-                messageAdapter.addMessage(message);
-            }
-        });
-    }
-
-    @Override
-    public void onMessageEdited(Long messageId, String newContent) {
-        runOnUiThread(() -> {
-            // Update the message in your adapter
-            if (messageAdapter != null) {
-                ChatMessage editedMessage = new ChatMessage();
-                editedMessage.setId(messageId);
-                editedMessage.setContent(newContent);
-                editedMessage.setEdited(true);
-                messageAdapter.updateMessage(editedMessage);
-            }
-        });
-    }
-
-    @Override
-    public void onMessageDeleted(Long messageId) {
-        runOnUiThread(() -> {
-            // Remove the message from your adapter
-            if (messageAdapter != null) {
-                messageAdapter.removeMessage(messageId);
-            }
+            messageAdapter.addMessage(message);
+            scrollToBottom();
         });
     }
 
     @Override
     public void onTypingIndicator(String username, boolean isTyping) {
-        if (!username.equals(sharedPrefManager.getUsername())) {
-            runOnUiThread(() -> {
-                if (isTyping) {
-                    tvUserStatus.setText("Typing...");
-                } else {
-                    tvUserStatus.setText("Online");
-                }
-            });
+        if (isTyping) {
+            typingUsers.add(username);
+        } else {
+            typingUsers.remove(username);
         }
+        updateTypingIndicator();
     }
 
     @Override
     public void onUserStatusChanged(Long userId, boolean isOnline) {
+        // Update user status if needed
         if (userId.equals(targetUserId)) {
-            runOnUiThread(() -> {
-                tvUserStatus.setText(isOnline ? "Online" : "Offline");
-            });
+            runOnUiThread(() -> tvUserStatus.setText(isOnline ? "Online" : "Offline"));
         }
     }
 
     @Override
+    public void onMessageEdited(Long messageId, String newContent) {
+        runOnUiThread(() -> messageAdapter.updateMessage(messageId, newContent));
+    }
+
+    @Override
+    public void onMessageDeleted(Long messageId) {
+        runOnUiThread(() -> messageAdapter.removeMessage(messageId));
+    }
+
+    @Override
+    public void onUserJoined(String username) {
+        showError(username + " joined the chat");
+    }
+
+    @Override
+    public void onUserLeft(String username) {
+        showError(username + " left the chat");
+    }
+
+    // WebSocket Connection Listener Methods
+    @Override
     public void onConnected() {
-        runOnUiThread(() -> {
-            tvConnectionStatus.setVisibility(View.GONE);
-            joinWebSocketRoom();
-            Log.d(TAG, "WebSocket connected");
-        });
+        Log.d(TAG, "WebSocket connected");
+        updateConnectionStatus(Constants.CONNECTION_STATE_CONNECTED);
+
+        // Join chat room if we have one
+        if (chatRoomId != null) {
+            joinChatRoom();
+        }
     }
 
     @Override
     public void onDisconnected() {
-        runOnUiThread(() -> {
-            tvConnectionStatus.setText("Disconnected");
-            tvConnectionStatus.setVisibility(View.VISIBLE);
-            Log.d(TAG, "WebSocket disconnected");
-        });
+        Log.d(TAG, "WebSocket disconnected");
+        updateConnectionStatus(Constants.CONNECTION_STATE_DISCONNECTED);
     }
 
     @Override
     public void onError(String error) {
-        runOnUiThread(() -> {
-            tvConnectionStatus.setText("Connection Error");
-            tvConnectionStatus.setVisibility(View.VISIBLE);
-            Log.e(TAG, "WebSocket error: " + error);
-        });
-    }
-
-    private void handleUnauthorized() {
-        Log.e(TAG, "Unauthorized - clearing auth data");
-        sharedPrefManager.clearAuthData();
-        finish();
-    }
-
-    private void showError(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-    }
-
-    private void showSuccess(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (chatRoomId != null && webSocketManager != null) {
-            webSocketManager.leaveChatRoom(chatRoomId);
-        }
+        Log.e(TAG, "WebSocket error: " + error);
+        updateConnectionStatus(Constants.CONNECTION_STATE_ERROR);
+        showError("Connection error: " + error);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Reconnect WebSocket if needed
-        if (webSocketManager != null && !webSocketManager.isConnected()) {
+        if (!webSocketManager.isConnected()) {
             webSocketManager.connect();
         }
     }
@@ -515,9 +459,28 @@ public class ChatActivity extends AppCompatActivity implements
     @Override
     protected void onPause() {
         super.onPause();
-        // Send typing stopped indicator when leaving
-        if (chatRoomId != null && webSocketManager != null) {
-            webSocketManager.sendTypingIndicator(chatRoomId, sharedPrefManager.getId(), false);
+        // Stop typing indicator
+        if (isTyping) {
+            isTyping = false;
+            webSocketManager.sendTypingIndicator(false);
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        // Leave chat room and disconnect
+        if (webSocketManager != null) {
+            webSocketManager.leaveChatRoom();
+        }
+
+        // Clear typing handler
+        if (typingHandler != null && typingStopRunnable != null) {
+            typingHandler.removeCallbacks(typingStopRunnable);
+        }
+
+        // Note: Don't disconnect WebSocket here as it might be used by other activities
+        // webSocketManager.disconnect();
     }
 }

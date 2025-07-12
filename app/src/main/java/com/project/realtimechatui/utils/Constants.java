@@ -8,6 +8,16 @@ public class Constants {
     // WebSocket Configuration
     public static final String WS_BASE_URL = "ws://10.0.2.2:8080/ws";
 
+    // WebSocket Topics and Destinations
+    public static final String WS_CHAT_TOPIC = "/topic/chat/";
+    public static final String WS_TYPING_TOPIC = "/typing";
+    public static final String WS_EVENTS_TOPIC = "/events";
+    public static final String WS_ERROR_QUEUE = "/queue/errors";
+    public static final String WS_SEND_MESSAGE = "/app/chat.sendMessage/";
+    public static final String WS_TYPING_INDICATOR = "/app/chat.typing/";
+    public static final String WS_JOIN_ROOM = "/app/chat.join/";
+    public static final String WS_LEAVE_ROOM = "/app/chat.leave/";
+
     // SharedPreferences Keys
     public static final String PREF_NAME = "RealtimeChatPrefs";
     public static final String KEY_ACCESS_TOKEN = "access_token";
@@ -47,4 +57,18 @@ public class Constants {
     public static final String WS_TYPE_MESSAGE = "message";
     public static final String WS_TYPE_TYPING = "typing";
     public static final String WS_TYPE_USER_STATUS = "user_status";
+    public static final String WS_TYPE_USER_JOINED = "user_joined";
+    public static final String WS_TYPE_USER_LEFT = "user_left";
+    public static final String WS_TYPE_MESSAGE_UPDATED = "message_updated";
+    public static final String WS_TYPE_MESSAGE_DELETED = "message_deleted";
+
+    // Connection States
+    public static final String CONNECTION_STATE_CONNECTING = "CONNECTING";
+    public static final String CONNECTION_STATE_CONNECTED = "CONNECTED";
+    public static final String CONNECTION_STATE_DISCONNECTED = "DISCONNECTED";
+    public static final String CONNECTION_STATE_ERROR = "ERROR";
+
+    // Typing Indicator Constants
+    public static final long TYPING_INDICATOR_DELAY = 3000; // 3 seconds
+    public static final int HEARTBEAT_INTERVAL = 10000; // 10 seconds
 }

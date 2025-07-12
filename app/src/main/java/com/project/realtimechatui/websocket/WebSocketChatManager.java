@@ -1,7 +1,11 @@
 package com.project.realtimechatui.websocket;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.project.realtimechatui.api.models.ChatMessage;
 import com.project.realtimechatui.utils.Constants;
 import com.project.realtimechatui.utils.SharedPrefManager;
@@ -10,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.CompletableTransformer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
@@ -20,6 +25,7 @@ import ua.naiksoftware.stomp.Stomp;
 import ua.naiksoftware.stomp.StompClient;
 import ua.naiksoftware.stomp.dto.LifecycleEvent;
 import ua.naiksoftware.stomp.dto.StompHeader;
+import ua.naiksoftware.stomp.dto.StompMessage;
 
 public class WebSocketChatManager {
     private static final String TAG = "WebSocketChatManager";
@@ -33,6 +39,9 @@ public class WebSocketChatManager {
     private SharedPrefManager sharedPrefManager;
     private CompositeDisposable compositeDisposable;
     private String currentChatRoomTopic;
+    private Long currentChatRoomId;
+    private Handler typingHandler;
+    private Runnable typingStopRunnable;
 
     public interface ChatMessageListener {
         void onMessageReceived(ChatMessage message);
@@ -40,6 +49,9 @@ public class WebSocketChatManager {
         void onUserStatusChanged(Long userId, boolean isOnline);
         void onMessageEdited(Long messageId, String newContent);
         void onMessageDeleted(Long messageId);
+        void onUserJoined(String username);
+        void onUserLeft(String username);
+        void onError(String error);
     }
 
     public interface ConnectionListener {
@@ -52,6 +64,7 @@ public class WebSocketChatManager {
         gson = new Gson();
         sharedPrefManager = SharedPrefManager.getInstance();
         compositeDisposable = new CompositeDisposable();
+        typingHandler = new Handler(Looper.getMainLooper());
     }
 
     public static synchronized WebSocketChatManager getInstance() {
@@ -61,38 +74,57 @@ public class WebSocketChatManager {
         return instance;
     }
 
+    public void setMessageListener(ChatMessageListener listener) {
+        this.messageListener = listener;
+    }
+
+    public void setConnectionListener(ConnectionListener listener) {
+        this.connectionListener = listener;
+    }
+
+    public boolean isConnected() {
+        return isConnected && stompClient != null && stompClient.isConnected();
+    }
+
     public void connect() {
-        if (isConnected || !sharedPrefManager.isLoggedIn()) {
+        if (isConnected() || !sharedPrefManager.isLoggedIn()) {
             Log.w(TAG, "Already connected or user not logged in");
             return;
         }
 
         try {
-            String wsUrl = Constants.WS_BASE_URL; // "ws://10.0.2.2:8080/ws"
+            String wsUrl = Constants.WS_BASE_URL;
             Log.d(TAG, "Connecting to WebSocket: " + wsUrl);
 
-            // Create STOMP client
+            // Create STOMP client with SockJS fallback
             stompClient = Stomp.over(Stomp.ConnectionProvider.OKHTTP, wsUrl);
 
-            // Add authorization header
+            // Configure heartbeat
+            stompClient.withClientHeartbeat(Constants.HEARTBEAT_INTERVAL)
+                    .withServerHeartbeat(Constants.HEARTBEAT_INTERVAL);
+
+            // Get auth token
             String token = sharedPrefManager.getAccessToken();
             if (token != null) {
-                stompClient.withClientHeartbeat(10000).withServerHeartbeat(10000);
-
                 // Add auth header for STOMP connection
                 List<StompHeader> headers = new ArrayList<>();
                 headers.add(new StompHeader("Authorization", "Bearer " + token));
 
-                // Connect with headers
-                Disposable disposeConnection = stompClient.lifecycle()
+                // Listen to lifecycle events
+                Disposable lifeCycleDisposable = stompClient.lifecycle()
                         .subscribeOn(Schedulers.io())
                         .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(this::handleLifecycleEvent);
+                        .subscribe(this::handleLifecycleEvent, throwable -> {
+                            Log.e(TAG, "Lifecycle error", throwable);
+                            if (connectionListener != null) {
+                                connectionListener.onError("Connection lifecycle error: " + throwable.getMessage());
+                            }
+                        });
 
-                compositeDisposable.add(disposeConnection);
+                compositeDisposable.add(lifeCycleDisposable);
 
-                // Connect
-                stompClient.connect();
+                // Connect with headers
+                stompClient.connect(headers);
 
             } else {
                 Log.e(TAG, "No auth token available");
@@ -128,228 +160,317 @@ public class WebSocketChatManager {
                 break;
 
             case ERROR:
-                Log.e(TAG, "WebSocket error: " + lifecycleEvent.getException());
+                Log.e(TAG, "WebSocket connection error", lifecycleEvent.getException());
                 isConnected = false;
                 if (connectionListener != null) {
-                    connectionListener.onError(lifecycleEvent.getException().getMessage());
+                    connectionListener.onError("Connection error: " +
+                            (lifecycleEvent.getException() != null ?
+                                    lifecycleEvent.getException().getMessage() : "Unknown error"));
                 }
+                break;
+
+            case FAILED_SERVER_HEARTBEAT:
+                Log.w(TAG, "Server heartbeat failed");
+                // Attempt to reconnect
+                reconnect();
                 break;
         }
     }
 
     public void joinChatRoom(Long chatRoomId) {
-        if (!isConnected || stompClient == null) {
-            Log.w(TAG, "Cannot join chat room - not connected");
+        if (!isConnected()) {
+            Log.w(TAG, "Not connected to WebSocket");
             return;
         }
 
+        this.currentChatRoomId = chatRoomId;
+        this.currentChatRoomTopic = Constants.WS_CHAT_TOPIC + chatRoomId;
+
         try {
-            // Unsubscribe from previous room if any
-            if (currentChatRoomTopic != null) {
-                // Previous subscription will be automatically disposed
+            // Subscribe to chat room messages
+            Disposable messageDisposable = stompClient.topic(currentChatRoomTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleIncomingMessage, throwable -> {
+                        Log.e(TAG, "Error subscribing to chat room", throwable);
+                        if (messageListener != null) {
+                            messageListener.onError("Failed to subscribe to chat room: " + throwable.getMessage());
+                        }
+                    });
+
+            compositeDisposable.add(messageDisposable);
+
+            // Subscribe to typing indicators
+            Disposable typingDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_TYPING_TOPIC)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleTypingIndicator, throwable -> {
+                        Log.e(TAG, "Error subscribing to typing indicators", throwable);
+                    });
+
+            compositeDisposable.add(typingDisposable);
+
+            // Subscribe to room events
+            Disposable eventsDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_EVENTS_TOPIC)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleRoomEvent, throwable -> {
+                        Log.e(TAG, "Error subscribing to room events", throwable);
+                    });
+
+            compositeDisposable.add(eventsDisposable);
+
+            // Subscribe to personal error queue
+            String username = sharedPrefManager.getUsername();
+            if (username != null) {
+                Disposable errorDisposable = stompClient.topic("/user/" + username + Constants.WS_ERROR_QUEUE)
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe(this::handleErrorMessage, throwable -> {
+                            Log.e(TAG, "Error subscribing to error queue", throwable);
+                        });
+
+                compositeDisposable.add(errorDisposable);
             }
 
-            currentChatRoomTopic = "/topic/chat/" + chatRoomId;
-            Log.d(TAG, "Subscribing to: " + currentChatRoomTopic);
+            // Send join room message
+            Map<String, Object> joinPayload = new HashMap<>();
+            joinPayload.put("action", "join");
+            stompClient.send(Constants.WS_JOIN_ROOM + chatRoomId, gson.toJson(joinPayload))
+                    .compose(applySchedulers())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Join room message sent successfully");
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending join room message", throwable);
+                    });
 
-            // Subscribe to chat room messages
-            Disposable disposable = stompClient.topic(currentChatRoomTopic)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(
-                            topicMessage -> {
-                                Log.d(TAG, "Received message: " + topicMessage.getPayload());
-                                handleIncomingMessage(topicMessage.getPayload());
-                            },
-                            throwable -> {
-                                Log.e(TAG, "Error in chat room subscription", throwable);
-                            }
-                    );
-
-            compositeDisposable.add(disposable);
-
-            // Subscribe to status updates
-            String statusTopic = "/topic/chat/" + chatRoomId + "/status";
-            Disposable statusDisposable = stompClient.topic(statusTopic)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(
-                            topicMessage -> handleStatusUpdate(topicMessage.getPayload()),
-                            throwable -> Log.e(TAG, "Error in status subscription", throwable)
-                    );
-
-            compositeDisposable.add(statusDisposable);
-
-            // Subscribe to edit notifications
-            String editTopic = "/topic/chat/" + chatRoomId + "/edit";
-            Disposable editDisposable = stompClient.topic(editTopic)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(
-                            topicMessage -> handleMessageEdit(topicMessage.getPayload()),
-                            throwable -> Log.e(TAG, "Error in edit subscription", throwable)
-                    );
-
-            compositeDisposable.add(editDisposable);
-
-            // Subscribe to delete notifications
-            String deleteTopic = "/topic/chat/" + chatRoomId + "/delete";
-            Disposable deleteDisposable = stompClient.topic(deleteTopic)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(
-                            topicMessage -> handleMessageDelete(topicMessage.getPayload()),
-                            throwable -> Log.e(TAG, "Error in delete subscription", throwable)
-                    );
-
-            compositeDisposable.add(deleteDisposable);
+            Log.d(TAG, "Successfully joined chat room: " + chatRoomId);
 
         } catch (Exception e) {
             Log.e(TAG, "Error joining chat room", e);
+            if (messageListener != null) {
+                messageListener.onError("Failed to join chat room: " + e.getMessage());
+            }
         }
     }
 
-    public void sendMessage(Long chatRoomId, String content, Long senderId) {
-        if (!isConnected || stompClient == null) {
-            Log.w(TAG, "Cannot send message - not connected");
+    public void leaveChatRoom() {
+        if (currentChatRoomId != null && isConnected()) {
+            try {
+                // Send leave room message
+                Map<String, Object> leavePayload = new HashMap<>();
+                leavePayload.put("action", "leave");
+                stompClient.send(Constants.WS_LEAVE_ROOM + currentChatRoomId, gson.toJson(leavePayload))
+                        .compose(applySchedulers())
+                        .subscribe(() -> {
+                            Log.d(TAG, "Leave room message sent successfully");
+                        }, throwable -> {
+                            Log.e(TAG, "Error sending leave room message", throwable);
+                        });
+
+                Log.d(TAG, "Left chat room: " + currentChatRoomId);
+            } catch (Exception e) {
+                Log.e(TAG, "Error leaving chat room", e);
+            }
+        }
+
+        // Reset current room
+        currentChatRoomId = null;
+        currentChatRoomTopic = null;
+    }
+
+    public void sendMessage(String content) {
+        if (!isConnected() || currentChatRoomId == null) {
+            Log.w(TAG, "Cannot send message: not connected or no chat room");
+            if (messageListener != null) {
+                messageListener.onError("Not connected or no chat room selected");
+            }
             return;
         }
 
         try {
-            Map<String, Object> messageData = new HashMap<>();
-            messageData.put("content", content);
-            messageData.put("type", Constants.MESSAGE_TYPE_TEXT);
-            messageData.put("timestamp", System.currentTimeMillis());
+            Map<String, Object> messagePayload = new HashMap<>();
+            messagePayload.put("content", content);
+            messagePayload.put("type", Constants.MESSAGE_TYPE_TEXT);
 
-            String destination = "/app/chat.sendMessage/" + chatRoomId;
-            String jsonMessage = gson.toJson(messageData);
-
-            Log.d(TAG, "Sending message to: " + destination);
-            Log.d(TAG, "Message content: " + jsonMessage);
-
-            Disposable disposable = stompClient.send(destination, jsonMessage)
+            stompClient.send(Constants.WS_SEND_MESSAGE + currentChatRoomId, gson.toJson(messagePayload))
                     .compose(applySchedulers())
-                    .subscribe(
-                            () -> Log.d(TAG, "Message sent successfully"),
-                            throwable -> Log.e(TAG, "Error sending message", throwable)
-                    );
-
-            compositeDisposable.add(disposable);
+                    .subscribe(() -> {
+                        Log.d(TAG, "Message sent successfully");
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending message", throwable);
+                        if (messageListener != null) {
+                            messageListener.onError("Failed to send message: " + throwable.getMessage());
+                        }
+                    });
 
         } catch (Exception e) {
-            Log.e(TAG, "Error sending message", e);
+            Log.e(TAG, "Error preparing message", e);
+            if (messageListener != null) {
+                messageListener.onError("Failed to send message: " + e.getMessage());
+            }
         }
     }
 
-    public void sendTypingIndicator(Long chatRoomId, Long userId, boolean isTyping) {
-        if (!isConnected || stompClient == null) {
+    public void sendTypingIndicator(boolean isTyping) {
+        if (!isConnected() || currentChatRoomId == null) {
             return;
         }
 
         try {
-            Map<String, Object> typingData = new HashMap<>();
-            typingData.put("type", "typing");
-            typingData.put("isTyping", isTyping);
-            typingData.put("userId", userId);
-            typingData.put("username", sharedPrefManager.getUsername());
+            Map<String, Object> typingPayload = new HashMap<>();
+            typingPayload.put("isTyping", isTyping);
 
-            String destination = "/app/chat.typing/" + chatRoomId;
-            String jsonMessage = gson.toJson(typingData);
-
-            Disposable disposable = stompClient.send(destination, jsonMessage)
+            stompClient.send(Constants.WS_TYPING_INDICATOR + currentChatRoomId, gson.toJson(typingPayload))
                     .compose(applySchedulers())
-                    .subscribe(
-                            () -> {}, // Success - no action needed
-                            throwable -> Log.e(TAG, "Error sending typing indicator", throwable)
-                    );
+                    .subscribe(() -> {
+                        Log.d(TAG, "Typing indicator sent: " + isTyping);
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending typing indicator", throwable);
+                    });
 
-            compositeDisposable.add(disposable);
+            // Auto-stop typing indicator after delay
+            if (isTyping) {
+                if (typingStopRunnable != null) {
+                    typingHandler.removeCallbacks(typingStopRunnable);
+                }
+                typingStopRunnable = () -> sendTypingIndicator(false);
+                typingHandler.postDelayed(typingStopRunnable, Constants.TYPING_INDICATOR_DELAY);
+            }
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending typing indicator", e);
         }
     }
 
-    private void handleIncomingMessage(String messageJson) {
+    private void handleIncomingMessage(StompMessage stompMessage) {
         try {
-            Log.d(TAG, "Parsing incoming message: " + messageJson);
+            String payload = stompMessage.getPayload();
+            Log.d(TAG, "Received message: " + payload);
 
-            // Try to parse as ChatMessage first
-            ChatMessage chatMessage = gson.fromJson(messageJson, ChatMessage.class);
-            if (chatMessage != null && chatMessage.getContent() != null) {
+            ChatMessage chatMessage = gson.fromJson(payload, ChatMessage.class);
+            if (messageListener != null) {
+                messageListener.onMessageReceived(chatMessage);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error handling incoming message", e);
+        }
+    }
+
+    private void handleTypingIndicator(StompMessage stompMessage) {
+        try {
+            String payload = stompMessage.getPayload();
+            JsonObject jsonObject = JsonParser.parseString(payload).getAsJsonObject();
+
+            String username = jsonObject.get("username").getAsString();
+            boolean isTyping = jsonObject.get("isTyping").getAsBoolean();
+
+            // Don't show own typing indicator
+            if (!username.equals(sharedPrefManager.getUsername())) {
                 if (messageListener != null) {
-                    messageListener.onMessageReceived(chatMessage);
+                    messageListener.onTypingIndicator(username, isTyping);
                 }
-                return;
-            }
-
-            // If not a chat message, try to parse as generic message
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = gson.fromJson(messageJson, Map.class);
-            String type = (String) data.get("type");
-
-            if ("typing".equals(type) && messageListener != null) {
-                String username = (String) data.get("username");
-                Boolean isTyping = (Boolean) data.get("isTyping");
-                messageListener.onTypingIndicator(username, isTyping != null ? isTyping : false);
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing incoming message", e);
+            Log.e(TAG, "Error handling typing indicator", e);
         }
     }
 
-    private void handleStatusUpdate(String statusJson) {
+    private void handleRoomEvent(StompMessage stompMessage) {
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = gson.fromJson(statusJson, Map.class);
+            String payload = stompMessage.getPayload();
+            JsonObject jsonObject = JsonParser.parseString(payload).getAsJsonObject();
 
-            Double userIdDouble = (Double) data.get("userId");
-            Boolean isOnline = (Boolean) data.get("online");
+            String type = jsonObject.get("type").getAsString();
+            String username = jsonObject.has("username") ? jsonObject.get("username").getAsString() : null;
 
-            if (userIdDouble != null && messageListener != null) {
-                Long userId = userIdDouble.longValue();
-                messageListener.onUserStatusChanged(userId, isOnline != null ? isOnline : false);
+            if (messageListener != null) {
+                switch (type) {
+                    case Constants.WS_TYPE_USER_JOINED:
+                        if (username != null && !username.equals(sharedPrefManager.getUsername())) {
+                            messageListener.onUserJoined(username);
+                        }
+                        break;
+
+                    case Constants.WS_TYPE_USER_LEFT:
+                        if (username != null && !username.equals(sharedPrefManager.getUsername())) {
+                            messageListener.onUserLeft(username);
+                        }
+                        break;
+
+                    case Constants.WS_TYPE_MESSAGE_UPDATED:
+                        Long messageId = jsonObject.get("messageId").getAsLong();
+                        String newContent = jsonObject.get("newContent").getAsString();
+                        messageListener.onMessageEdited(messageId, newContent);
+                        break;
+
+                    case Constants.WS_TYPE_MESSAGE_DELETED:
+                        Long deletedMessageId = jsonObject.get("messageId").getAsLong();
+                        messageListener.onMessageDeleted(deletedMessageId);
+                        break;
+                }
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing status update", e);
+            Log.e(TAG, "Error handling room event", e);
         }
     }
 
-    private void handleMessageEdit(String editJson) {
+    private void handleErrorMessage(StompMessage stompMessage) {
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = gson.fromJson(editJson, Map.class);
+            String errorMessage = stompMessage.getPayload();
+            Log.e(TAG, "Received error message: " + errorMessage);
 
-            Double messageIdDouble = (Double) data.get("messageId");
-            String newContent = (String) data.get("content");
-
-            if (messageIdDouble != null && messageListener != null) {
-                Long messageId = messageIdDouble.longValue();
-                messageListener.onMessageEdited(messageId, newContent);
+            if (messageListener != null) {
+                messageListener.onError(errorMessage);
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing message edit", e);
+            Log.e(TAG, "Error handling error message", e);
         }
     }
 
-    private void handleMessageDelete(String deleteJson) {
+    public void disconnect() {
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = gson.fromJson(deleteJson, Map.class);
+            leaveChatRoom();
 
-            Double messageIdDouble = (Double) data.get("messageId");
-
-            if (messageIdDouble != null && messageListener != null) {
-                Long messageId = messageIdDouble.longValue();
-                messageListener.onMessageDeleted(messageId);
+            if (stompClient != null) {
+                stompClient.disconnect();
             }
 
+            compositeDisposable.clear();
+            isConnected = false;
+
+            // Clear typing handler
+            if (typingStopRunnable != null) {
+                typingHandler.removeCallbacks(typingStopRunnable);
+                typingStopRunnable = null;
+            }
+
+            Log.d(TAG, "WebSocket disconnected successfully");
+
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing message delete", e);
+            Log.e(TAG, "Error disconnecting from WebSocket", e);
         }
+    }
+
+    public void reconnect() {
+        Log.d(TAG, "Attempting to reconnect...");
+        disconnect();
+
+        // Wait a bit before reconnecting
+        typingHandler.postDelayed(() -> {
+            if (!isConnected() && sharedPrefManager.isLoggedIn()) {
+                connect();
+
+                // Rejoin chat room if we were in one
+                if (currentChatRoomId != null) {
+                    typingHandler.postDelayed(() -> joinChatRoom(currentChatRoomId), 1000);
+                }
+            }
+        }, 2000);
     }
 
     private CompletableTransformer applySchedulers() {
@@ -358,45 +479,7 @@ public class WebSocketChatManager {
                 .observeOn(AndroidSchedulers.mainThread());
     }
 
-    public void leaveChatRoom(Long chatRoomId) {
-        currentChatRoomTopic = null;
-        // Subscriptions will be disposed when disconnect is called
-    }
-
-    public void disconnect() {
-        try {
-            isConnected = false;
-
-            if (compositeDisposable != null) {
-                compositeDisposable.clear();
-            }
-
-            if (stompClient != null) {
-                stompClient.disconnect();
-                stompClient = null;
-            }
-
-            Log.d(TAG, "WebSocket disconnected");
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error disconnecting WebSocket", e);
-        }
-    }
-
-    public void reconnect() {
-        disconnect();
-        connect();
-    }
-
-    public boolean isConnected() {
-        return isConnected && stompClient != null && stompClient.isConnected();
-    }
-
-    public void setMessageListener(ChatMessageListener listener) {
-        this.messageListener = listener;
-    }
-
-    public void setConnectionListener(ConnectionListener listener) {
-        this.connectionListener = listener;
+    public Long getCurrentChatRoomId() {
+        return currentChatRoomId;
     }
 }
