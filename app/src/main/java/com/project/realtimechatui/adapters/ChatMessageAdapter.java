@@ -101,31 +101,18 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     }
 
     public void addMessage(ChatMessage message) {
-        if (message != null && !isDuplicateMessage(message)) {
+        if (message != null) {
             messages.add(message);
             notifyItemInserted(messages.size() - 1);
         }
     }
 
-    public void addMessages(List<ChatMessage> newMessages) {
-        if (newMessages != null && !newMessages.isEmpty()) {
-            int startPosition = messages.size();
-            messages.addAll(newMessages);
-            notifyItemRangeInserted(startPosition, newMessages.size());
-        }
-    }
-
-    public void updateMessage(ChatMessage updatedMessage) {
+    public void updateMessage(Long messageId, String newContent) {
         for (int i = 0; i < messages.size(); i++) {
-            if (messages.get(i).getId() != null &&
-                    messages.get(i).getId().equals(updatedMessage.getId())) {
-
-                // Update the existing message with new content
-                ChatMessage existingMessage = messages.get(i);
-                existingMessage.setContent(updatedMessage.getContent());
-                existingMessage.setEdited(updatedMessage.isEdited());
-                existingMessage.setEditedAt(updatedMessage.getEditedAt());
-
+            ChatMessage message = messages.get(i);
+            if (message.getId().equals(messageId)) {
+                message.setContent(newContent);
+                message.setEdited(true);
                 notifyItemChanged(i);
                 break;
             }
@@ -134,8 +121,8 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     public void removeMessage(Long messageId) {
         for (int i = 0; i < messages.size(); i++) {
-            if (messages.get(i).getId() != null &&
-                    messages.get(i).getId().equals(messageId)) {
+            ChatMessage message = messages.get(i);
+            if (message.getId().equals(messageId)) {
                 messages.remove(i);
                 notifyItemRemoved(i);
                 break;

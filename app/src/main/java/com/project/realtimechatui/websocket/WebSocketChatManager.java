@@ -177,83 +177,6 @@ public class WebSocketChatManager {
         }
     }
 
-    public void joinChatRoom(Long chatRoomId) {
-        if (!isConnected()) {
-            Log.w(TAG, "Not connected to WebSocket");
-            return;
-        }
-
-        this.currentChatRoomId = chatRoomId;
-        this.currentChatRoomTopic = Constants.WS_CHAT_TOPIC + chatRoomId;
-
-        try {
-            // Subscribe to chat room messages
-            Disposable messageDisposable = stompClient.topic(currentChatRoomTopic)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(this::handleIncomingMessage, throwable -> {
-                        Log.e(TAG, "Error subscribing to chat room", throwable);
-                        if (messageListener != null) {
-                            messageListener.onError("Failed to subscribe to chat room: " + throwable.getMessage());
-                        }
-                    });
-
-            compositeDisposable.add(messageDisposable);
-
-            // Subscribe to typing indicators
-            Disposable typingDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_TYPING_TOPIC)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(this::handleTypingIndicator, throwable -> {
-                        Log.e(TAG, "Error subscribing to typing indicators", throwable);
-                    });
-
-            compositeDisposable.add(typingDisposable);
-
-            // Subscribe to room events
-            Disposable eventsDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_EVENTS_TOPIC)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(this::handleRoomEvent, throwable -> {
-                        Log.e(TAG, "Error subscribing to room events", throwable);
-                    });
-
-            compositeDisposable.add(eventsDisposable);
-
-            // Subscribe to personal error queue
-            String username = sharedPrefManager.getUsername();
-            if (username != null) {
-                Disposable errorDisposable = stompClient.topic("/user/" + username + Constants.WS_ERROR_QUEUE)
-                        .subscribeOn(Schedulers.io())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(this::handleErrorMessage, throwable -> {
-                            Log.e(TAG, "Error subscribing to error queue", throwable);
-                        });
-
-                compositeDisposable.add(errorDisposable);
-            }
-
-            // Send join room message
-            Map<String, Object> joinPayload = new HashMap<>();
-            joinPayload.put("action", "join");
-            stompClient.send(Constants.WS_JOIN_ROOM + chatRoomId, gson.toJson(joinPayload))
-                    .compose(applySchedulers())
-                    .subscribe(() -> {
-                        Log.d(TAG, "Join room message sent successfully");
-                    }, throwable -> {
-                        Log.e(TAG, "Error sending join room message", throwable);
-                    });
-
-            Log.d(TAG, "Successfully joined chat room: " + chatRoomId);
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error joining chat room", e);
-            if (messageListener != null) {
-                messageListener.onError("Failed to join chat room: " + e.getMessage());
-            }
-        }
-    }
-
     public void leaveChatRoom() {
         if (currentChatRoomId != null && isConnected()) {
             try {
@@ -360,21 +283,15 @@ public class WebSocketChatManager {
 
     private void handleTypingIndicator(StompMessage stompMessage) {
         try {
-            String payload = stompMessage.getPayload();
-            JsonObject jsonObject = JsonParser.parseString(payload).getAsJsonObject();
-
+            JsonObject jsonObject = gson.fromJson(stompMessage.getPayload(), JsonObject.class);
             String username = jsonObject.get("username").getAsString();
             boolean isTyping = jsonObject.get("isTyping").getAsBoolean();
 
-            // Don't show own typing indicator
-            if (!username.equals(sharedPrefManager.getUsername())) {
-                if (messageListener != null) {
-                    messageListener.onTypingIndicator(username, isTyping);
-                }
+            if (messageListener != null) {
+                messageListener.onTypingIndicator(username, isTyping);
             }
-
         } catch (Exception e) {
-            Log.e(TAG, "Error handling typing indicator", e);
+            Log.e(TAG, "Error parsing typing indicator", e);
         }
     }
 
@@ -481,5 +398,271 @@ public class WebSocketChatManager {
 
     public Long getCurrentChatRoomId() {
         return currentChatRoomId;
+    }
+
+    // Add these methods to WebSocketChatManager.java
+
+    public void sendTypingIndicator(Long chatRoomId, boolean isTyping) {
+        if (!isConnected() || currentChatRoomId == null || !currentChatRoomId.equals(chatRoomId)) {
+            return;
+        }
+
+        try {
+            Map<String, Object> typingData = new HashMap<>();
+            typingData.put("isTyping", isTyping);
+
+            String destination = "/app/chat.typing/" + chatRoomId;
+            String jsonData = gson.toJson(typingData);
+
+            Disposable disposable = stompClient.send(destination, jsonData)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Typing indicator sent: " + isTyping);
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending typing indicator", throwable);
+                    });
+
+            compositeDisposable.add(disposable);
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending typing indicator", e);
+        }
+    }
+
+    public void subscribeToChatRoom(Long chatRoomId) {
+        if (!isConnected()) {
+            Log.w(TAG, "Cannot subscribe - not connected");
+            return;
+        }
+
+        try {
+            currentChatRoomId = chatRoomId;
+            String chatTopic = "/topic/chat/" + chatRoomId;
+            String typingTopic = "/topic/chat/" + chatRoomId + "/typing";
+            String statusTopic = "/topic/chat/" + chatRoomId + "/status";
+            String eventsTopic = "/topic/chat/" + chatRoomId + "/events";
+
+            // Subscribe to chat messages
+            Disposable chatDisposable = stompClient.topic(chatTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleChatMessage, throwable -> {
+                        Log.e(TAG, "Error in chat topic subscription", throwable);
+                    });
+
+            // Subscribe to typing indicators
+            Disposable typingDisposable = stompClient.topic(typingTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleTypingIndicator, throwable -> {
+                        Log.e(TAG, "Error in typing topic subscription", throwable);
+                    });
+
+            // Subscribe to status updates
+            Disposable statusDisposable = stompClient.topic(statusTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleStatusUpdate, throwable -> {
+                        Log.e(TAG, "Error in status topic subscription", throwable);
+                    });
+
+            // Subscribe to events
+            Disposable eventsDisposable = stompClient.topic(eventsTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleEventMessage, throwable -> {
+                        Log.e(TAG, "Error in events topic subscription", throwable);
+                    });
+
+            compositeDisposable.addAll(chatDisposable, typingDisposable, statusDisposable, eventsDisposable);
+            currentChatRoomTopic = chatTopic;
+
+            Log.d(TAG, "Subscribed to chat room: " + chatRoomId);
+        } catch (Exception e) {
+            Log.e(TAG, "Error subscribing to chat room", e);
+        }
+    }
+
+    public void joinChatRoom(Long chatRoomId) {
+        if (!isConnected()) {
+            Log.w(TAG, "Not connected to WebSocket");
+            return;
+        }
+
+        this.currentChatRoomId = chatRoomId;
+        this.currentChatRoomTopic = Constants.WS_CHAT_TOPIC + chatRoomId;
+
+        try {
+            // Subscribe to chat room messages
+            Disposable messageDisposable = stompClient.topic(currentChatRoomTopic)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleIncomingMessage, throwable -> {
+                        Log.e(TAG, "Error subscribing to chat room", throwable);
+                        if (messageListener != null) {
+                            messageListener.onError("Failed to subscribe to chat room: " + throwable.getMessage());
+                        }
+                    });
+
+            compositeDisposable.add(messageDisposable);
+
+            // Subscribe to typing indicators
+            Disposable typingDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_TYPING_TOPIC)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleTypingIndicator, throwable -> {
+                        Log.e(TAG, "Error subscribing to typing indicators", throwable);
+                    });
+
+            compositeDisposable.add(typingDisposable);
+
+            // Subscribe to room events
+            Disposable eventsDisposable = stompClient.topic(currentChatRoomTopic + Constants.WS_EVENTS_TOPIC)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(this::handleRoomEvent, throwable -> {
+                        Log.e(TAG, "Error subscribing to room events", throwable);
+                    });
+
+            compositeDisposable.add(eventsDisposable);
+
+            // Subscribe to personal error queue
+            String username = sharedPrefManager.getUsername();
+            if (username != null) {
+                Disposable errorDisposable = stompClient.topic("/user/" + username + Constants.WS_ERROR_QUEUE)
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe(this::handleErrorMessage, throwable -> {
+                            Log.e(TAG, "Error subscribing to error queue", throwable);
+                        });
+
+                compositeDisposable.add(errorDisposable);
+            }
+
+            // Send join room message
+            Map<String, Object> joinPayload = new HashMap<>();
+            joinPayload.put("action", "join");
+            stompClient.send(Constants.WS_JOIN_ROOM + chatRoomId, gson.toJson(joinPayload))
+                    .compose(applySchedulers())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Join room message sent successfully");
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending join room message", throwable);
+                    });
+
+            Log.d(TAG, "Successfully joined chat room: " + chatRoomId);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error joining chat room", e);
+            if (messageListener != null) {
+                messageListener.onError("Failed to join chat room: " + e.getMessage());
+            }
+        }
+    }
+
+    public void leaveChatRoom(Long chatRoomId) {
+        if (!isConnected()) {
+            return;
+        }
+
+        try {
+            String destination = "/app/chat.leave/" + chatRoomId;
+
+            Disposable disposable = stompClient.send(destination, "{}")
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Left chat room: " + chatRoomId);
+                    }, throwable -> {
+                        Log.e(TAG, "Error leaving chat room", throwable);
+                    });
+
+            compositeDisposable.add(disposable);
+        } catch (Exception e) {
+            Log.e(TAG, "Error leaving chat room", e);
+        }
+    }
+
+    public void unsubscribeFromChatRoom(Long chatRoomId) {
+        currentChatRoomId = null;
+        currentChatRoomTopic = null;
+        // Disposables will be automatically disposed when activity is destroyed
+    }
+
+    public void sendMessage(Long chatRoomId, String content) {
+        if (!isConnected() || currentChatRoomId == null || !currentChatRoomId.equals(chatRoomId)) {
+            return;
+        }
+
+        try {
+            Map<String, Object> messageData = new HashMap<>();
+            messageData.put("content", content);
+
+            String destination = "/app/chat.sendMessage/" + chatRoomId;
+            String jsonData = gson.toJson(messageData);
+
+            Disposable disposable = stompClient.send(destination, jsonData)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Message sent successfully");
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending message", throwable);
+                        if (messageListener != null) {
+                            messageListener.onError("Failed to send message");
+                        }
+                    });
+
+            compositeDisposable.add(disposable);
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending message", e);
+            if (messageListener != null) {
+                messageListener.onError("Failed to send message");
+            }
+        }
+    }
+
+    // Helper methods for handling different message types
+    private void handleChatMessage(StompMessage stompMessage) {
+        try {
+            ChatMessage message = gson.fromJson(stompMessage.getPayload(), ChatMessage.class);
+            if (messageListener != null) {
+                messageListener.onMessageReceived(message);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing chat message", e);
+        }
+    }
+
+    private void handleStatusUpdate(StompMessage stompMessage) {
+        try {
+            JsonObject jsonObject = gson.fromJson(stompMessage.getPayload(), JsonObject.class);
+            Long userId = jsonObject.get("userId").getAsLong();
+            boolean online = jsonObject.get("online").getAsBoolean();
+
+            if (messageListener != null) {
+                messageListener.onUserStatusChanged(userId, online);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing status update", e);
+        }
+    }
+
+    private void handleEventMessage(StompMessage stompMessage) {
+        try {
+            JsonObject jsonObject = gson.fromJson(stompMessage.getPayload(), JsonObject.class);
+            String type = jsonObject.get("type").getAsString();
+            String username = jsonObject.get("username").getAsString();
+
+            if (messageListener != null) {
+                if ("user_joined".equals(type)) {
+                    messageListener.onUserJoined(username);
+                } else if ("user_left".equals(type)) {
+                    messageListener.onUserLeft(username);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing event message", e);
+        }
     }
 }

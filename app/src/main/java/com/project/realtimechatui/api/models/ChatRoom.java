@@ -1,12 +1,14 @@
 package com.project.realtimechatui.api.models;
 
+import com.project.realtimechatui.enums.EnumRoomType;
+
 import java.util.List;
 import java.util.Set;
 
 public class ChatRoom {
     private Long id;
     private String name;
-    private String type; // PERSONAL, GROUP, CHANNEL
+    private EnumRoomType type; // Changed from String to EnumRoomType
     private Set<Participant> participants;
     private Long lastMessageId;
     private String lastMessageContent;
@@ -31,11 +33,11 @@ public class ChatRoom {
         this.name = name;
     }
 
-    public String getType() {
+    public EnumRoomType getType() {
         return type;
     }
 
-    public void setType(String type) {
+    public void setType(EnumRoomType type) {
         this.type = type;
     }
 

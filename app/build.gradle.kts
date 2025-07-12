@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.stompprotocolandroid)
     implementation(libs.rxjava)
     implementation(libs.rxandroid)
+    implementation(libs.webkit)
 
     // Core Android Testing dependencies
     testImplementation(libs.junit)
