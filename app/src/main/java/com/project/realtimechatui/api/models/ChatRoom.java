@@ -1,12 +1,13 @@
 package com.project.realtimechatui.api.models;
 
 import java.util.List;
+import java.util.Set;
 
 public class ChatRoom {
     private Long id;
     private String name;
     private String type; // PERSONAL, GROUP, CHANNEL
-    private List<Participant> participants;
+    private Set<Participant> participants;
     private Long lastMessageId;
     private String lastMessageContent;
     private String lastMessageSenderUsername;
@@ -38,11 +39,11 @@ public class ChatRoom {
         this.type = type;
     }
 
-    public List<Participant> getParticipants() {
+    public Set<Participant> getParticipants() {
         return participants;
     }
 
-    public void setParticipants(List<Participant> participants) {
+    public void setParticipants(Set<Participant> participants) {
         this.participants = participants;
     }
 

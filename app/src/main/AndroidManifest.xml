@@ -16,6 +16,15 @@
         android:theme="@style/Theme.RealTimeChatUI"
         tools:targetApi="31">
         <activity
+            android:name=".ChatActivity"
+            android:exported="false" />
+        <activity
+            android:name=".adapters.UserSuggestionAdapter"
+            android:exported="false" />
+        <activity
+            android:name=".UserSearchActivity"
+            android:exported="false" />
+        <activity
             android:name=".adapters.ChatAdapter"
             android:exported="false" />
         <activity

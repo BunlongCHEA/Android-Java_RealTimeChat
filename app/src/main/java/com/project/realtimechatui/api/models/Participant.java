@@ -14,6 +14,18 @@ public class Participant {
     private boolean online;
     private String lastSeen;
 
+    // Constructors
+    public Participant() {}
+
+    public Participant(Long userId) {
+        this.userId = userId;
+    }
+
+    public Participant(Long userId, String role) {
+        this.userId = userId;
+        this.role = role;
+    }
+
     public Long getId() {
         return id;
     }

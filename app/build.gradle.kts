@@ -70,6 +70,9 @@ dependencies {
 
     // WebSocket for real-time chat
     implementation(libs.java.websocket)
+    implementation(libs.stompprotocolandroid)
+    implementation(libs.rxjava)
+    implementation(libs.rxandroid)
 
     // Core Android Testing dependencies
     testImplementation(libs.junit)
