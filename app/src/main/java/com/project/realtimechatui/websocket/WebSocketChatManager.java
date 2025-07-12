@@ -43,6 +43,8 @@ public class WebSocketChatManager {
     private Handler typingHandler;
     private Runnable typingStopRunnable;
 
+    private boolean isSendingMessage = false;
+
     public interface ChatMessageListener {
         void onMessageReceived(ChatMessage message);
         void onTypingIndicator(String username, boolean isTyping);
@@ -435,6 +437,12 @@ public class WebSocketChatManager {
             return;
         }
 
+        // To prevent duplicate subscriptions
+        if (currentChatRoomId != null && currentChatRoomId.equals(chatRoomId)) {
+            Log.d(TAG, "Already subscribed to chat room: " + chatRoomId);
+            return;
+        }
+
         try {
             currentChatRoomId = chatRoomId;
             String chatTopic = "/topic/chat/" + chatRoomId;
@@ -594,9 +602,18 @@ public class WebSocketChatManager {
             return;
         }
 
+        // Prevent duplicate sends - ADD THIS
+        if (isSendingMessage || content == null || content.trim().isEmpty()) {
+            Log.w(TAG, "Cannot send message: already sending or empty content");
+            return;
+        }
+
         try {
+            isSendingMessage = true;
+
             Map<String, Object> messageData = new HashMap<>();
-            messageData.put("content", content);
+            messageData.put("content", content.trim()); // Trim content
+            messageData.put("timestamp", System.currentTimeMillis()); // ADD timestamp
 
             String destination = "/app/chat.sendMessage/" + chatRoomId;
             String jsonData = gson.toJson(messageData);
@@ -606,8 +623,10 @@ public class WebSocketChatManager {
                     .observeOn(AndroidSchedulers.mainThread())
                     .subscribe(() -> {
                         Log.d(TAG, "Message sent successfully");
+                        isSendingMessage = false;
                     }, throwable -> {
                         Log.e(TAG, "Error sending message", throwable);
+                        isSendingMessage = false;
                         if (messageListener != null) {
                             messageListener.onError("Failed to send message");
                         }
@@ -616,6 +635,7 @@ public class WebSocketChatManager {
             compositeDisposable.add(disposable);
         } catch (Exception e) {
             Log.e(TAG, "Error sending message", e);
+            isSendingMessage = false;
             if (messageListener != null) {
                 messageListener.onError("Failed to send message");
             }

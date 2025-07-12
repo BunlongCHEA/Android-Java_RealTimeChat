@@ -17,9 +17,13 @@ import com.project.realtimechatui.utils.SharedPrefManager;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
@@ -31,6 +35,8 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     private List<ChatMessage> messages;
     private SharedPrefManager sharedPrefManager;
     private SimpleDateFormat timeFormat;
+
+    private Set<Long> messageIds = new HashSet<>();
 
     public ChatMessageAdapter(Context context) {
         this.context = context;
@@ -94,14 +100,64 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     // Public methods for managing messages
     public void setMessages(List<ChatMessage> messages) {
         this.messages.clear();
+        messageIds.clear(); // Also clear the message IDs set
+
         if (messages != null) {
+            // Sort messages by timestamp before adding (oldest first) - ADD THIS
+            Collections.sort(messages, new Comparator<ChatMessage>() {
+                @Override
+                public int compare(ChatMessage m1, ChatMessage m2) {
+                    try {
+                        long time1 = parseTimestamp(m1.getTimestamp());
+                        long time2 = parseTimestamp(m2.getTimestamp());
+                        return Long.compare(time1, time2); // Ascending order
+                    } catch (Exception e) {
+                        return 0;
+                    }
+                }
+            });
+
+            // Add messages and track IDs
+            for (ChatMessage message : messages) {
+                if (message.getId() != null) {
+                    messageIds.add(message.getId());
+                }
+            }
+
             this.messages.addAll(messages);
         }
+
         notifyDataSetChanged();
     }
 
+    private long parseTimestamp(String timestamp) {
+        try {
+            if (TextUtils.isEmpty(timestamp)) {
+                return 0;
+            }
+
+            // If timestamp is in milliseconds
+            if (timestamp.matches("\\d{13}")) {
+                return Long.parseLong(timestamp);
+            }
+
+            // If timestamp is in seconds, convert to milliseconds
+            if (timestamp.matches("\\d{10}")) {
+                return Long.parseLong(timestamp) * 1000;
+            }
+
+            // Try to parse ISO format
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+            Date date = sdf.parse(timestamp);
+            return date != null ? date.getTime() : System.currentTimeMillis();
+
+        } catch (Exception e) {
+            return System.currentTimeMillis();
+        }
+    }
+
     public void addMessage(ChatMessage message) {
-        if (message != null) {
+        if (message != null && !isDuplicateMessage(message)) {
             messages.add(message);
             notifyItemInserted(messages.size() - 1);
         }

@@ -35,9 +35,15 @@ import com.project.realtimechatui.utils.Constants;
 import com.project.realtimechatui.utils.SharedPrefManager;
 import com.project.realtimechatui.websocket.WebSocketChatManager;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import retrofit2.Call;
@@ -75,6 +81,12 @@ public class ChatActivity extends AppCompatActivity implements
     private Set<String> typingUsers;
     private boolean isTyping = false;
     private Runnable stopTypingRunnable;
+
+    // For duplicate prevention
+    private boolean isSendingMessage = false;
+    private Set<Long> receivedMessageIds = new HashSet<>();
+    private String lastSentContent = "";  // ← Already declared here
+    private long lastSentTime = 0;        // ← Already declared here
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -362,6 +374,22 @@ public class ChatActivity extends AppCompatActivity implements
                     BaseDTO<List<ChatMessage>> result = response.body();
                     if (result.isSuccess() && result.getData() != null) {
                         List<ChatMessage> messages = result.getData();
+
+                        // Sort messages by timestamp (oldest first, latest at bottom) - ADD THIS
+                        Collections.sort(messages, new Comparator<ChatMessage>() {
+                            @Override
+                            public int compare(ChatMessage m1, ChatMessage m2) {
+                                try {
+                                    // Parse timestamps and compare
+                                    long time1 = parseTimestamp(m1.getTimestamp());
+                                    long time2 = parseTimestamp(m2.getTimestamp());
+                                    return Long.compare(time1, time2); // Ascending order (oldest first)
+                                } catch (Exception e) {
+                                    return 0;
+                                }
+                            }
+                        });
+
                         messageAdapter.setMessages(messages);
                         scrollToBottom();
                     }
@@ -375,6 +403,33 @@ public class ChatActivity extends AppCompatActivity implements
         });
     }
 
+    private long parseTimestamp(String timestamp) {
+        try {
+            if (TextUtils.isEmpty(timestamp)) {
+                return 0;
+            }
+
+            // If timestamp is already in milliseconds (13 digits)
+            if (timestamp.matches("\\d{13}")) {
+                return Long.parseLong(timestamp);
+            }
+
+            // If timestamp is in seconds (10 digits), convert to milliseconds
+            if (timestamp.matches("\\d{10}")) {
+                return Long.parseLong(timestamp) * 1000;
+            }
+
+            // If timestamp is in ISO format, parse it
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+            Date date = sdf.parse(timestamp);
+            return date != null ? date.getTime() : System.currentTimeMillis();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing timestamp: " + timestamp, e);
+            return System.currentTimeMillis();
+        }
+    }
+
     private void sendMessage() {
         String messageText = etMessage.getText().toString().trim();
         if (TextUtils.isEmpty(messageText) || chatRoomId == null) {
@@ -386,6 +441,23 @@ public class ChatActivity extends AppCompatActivity implements
             return;
         }
 
+        // Prevent duplicate sends - ADD THIS BLOCK
+        if (isSendingMessage) {
+            return;
+        }
+
+        // Prevent sending same message within 2 seconds - ADD THIS BLOCK
+        long currentTime = System.currentTimeMillis();
+        if (messageText.equals(lastSentContent) && (currentTime - lastSentTime) < 2000) {
+            Log.d(TAG, "Preventing duplicate message send");
+            return;
+        }
+
+        // Set sending state - ADD THIS
+        isSendingMessage = true;
+        lastSentContent = messageText;
+        lastSentTime = currentTime;
+
         // Stop typing indicator
         stopTyping();
 
@@ -394,6 +466,11 @@ public class ChatActivity extends AppCompatActivity implements
 
         // Clear the input
         etMessage.setText("");
+
+        // Reset sending state after a delay - ADD THIS
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            isSendingMessage = false;
+        }, 1000);
     }
 
     private void scrollToBottom() {
@@ -437,6 +514,26 @@ public class ChatActivity extends AppCompatActivity implements
     // WebSocketChatManager.ChatMessageListener implementation
     @Override
     public void onMessageReceived(ChatMessage message) {
+        // Prevent duplicate messages - ADD THIS BLOCK
+        if (message.getId() != null && receivedMessageIds.contains(message.getId())) {
+            Log.d(TAG, "Duplicate message received, ignoring: " + message.getId());
+            return;
+        }
+
+        // Add to received set - ADD THIS BLOCK
+        if (message.getId() != null) {
+            receivedMessageIds.add(message.getId());
+
+            // Keep only last 1000 message IDs to prevent memory issues
+            if (receivedMessageIds.size() > 1000) {
+                Iterator<Long> iterator = receivedMessageIds.iterator();
+                for (int i = 0; i < 500 && iterator.hasNext(); i++) {
+                    iterator.next();
+                    iterator.remove();
+                }
+            }
+        }
+
         runOnUiThread(() -> {
             messageAdapter.addMessage(message);
             scrollToBottom();
