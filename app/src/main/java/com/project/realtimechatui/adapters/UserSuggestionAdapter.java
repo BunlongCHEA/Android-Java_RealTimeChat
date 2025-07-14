@@ -2,6 +2,7 @@ package com.project.realtimechatui.adapters;
 
 import android.content.Context;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -57,6 +58,36 @@ public class UserSuggestionAdapter extends RecyclerView.Adapter<UserSuggestionAd
         this.users = users != null ? users : new ArrayList<>();
         this.filteredUsers = new ArrayList<>(this.users);
         notifyDataSetChanged();
+    }
+
+    // ADD THIS METHOD to add a single user
+    public void addUser(User user) {
+        if (user != null) {
+            if (users == null) {
+                users = new ArrayList<>();
+            }
+            if (filteredUsers == null) {
+                filteredUsers = new ArrayList<>();
+            }
+
+            // Check if user already exists
+            boolean exists = false;
+            for (User existingUser : users) {
+                if (existingUser.getId().equals(user.getId())) {
+                    exists = true;
+                    break;
+                }
+            }
+
+            if (!exists) {
+                users.add(0, user); // Add at the top
+                filteredUsers.add(0, user);
+                notifyItemInserted(0);
+                Log.d("UserSuggestionAdapter", "User added: " + user.getUsername() + ", total users: " + users.size());
+            } else {
+                Log.d("UserSuggestionAdapter", "User already exists: " + user.getUsername());
+            }
+        }
     }
 
     public void filter(String query) {

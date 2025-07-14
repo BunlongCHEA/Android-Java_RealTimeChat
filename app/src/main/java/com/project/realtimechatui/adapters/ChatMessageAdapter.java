@@ -223,6 +223,7 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     // ViewHolder for sent messages (right side)
     public class SentMessageViewHolder extends RecyclerView.ViewHolder {
+        private TextView tvSenderName;
         private TextView tvMessageContent;
         private TextView tvTimestamp;
         private TextView tvEditedIndicator;
@@ -230,6 +231,7 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
         public SentMessageViewHolder(@NonNull View itemView) {
             super(itemView);
+            tvSenderName = itemView.findViewById(R.id.tvSenderName);
             tvMessageContent = itemView.findViewById(R.id.tvMessageContent);
             tvTimestamp = itemView.findViewById(R.id.tvTimestamp);
             tvEditedIndicator = itemView.findViewById(R.id.tvEditedIndicator);
@@ -237,6 +239,13 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         }
 
         public void bind(ChatMessage message) {
+            // Set sender name
+            String senderName = message.getSenderName();
+            if (TextUtils.isEmpty(senderName)) {
+                senderName = "User " + message.getSenderId();
+            }
+            tvSenderName.setText(senderName);
+
             tvMessageContent.setText(message.getContent());
             tvTimestamp.setText(formatTimestamp(message.getTimestamp()));
 

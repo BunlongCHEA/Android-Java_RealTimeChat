@@ -5,6 +5,7 @@ import com.project.realtimechatui.api.models.ChatMessage;
 import com.project.realtimechatui.api.models.ChatRoom;
 import com.project.realtimechatui.api.models.LoginRequest;
 import com.project.realtimechatui.api.models.LoginResponse;
+import com.project.realtimechatui.api.models.Participant;
 import com.project.realtimechatui.api.models.RegisterRequest;
 import com.project.realtimechatui.api.models.RegisterResponse;
 import com.project.realtimechatui.api.models.TokenRefreshResponse;
@@ -32,6 +33,7 @@ public interface ApiService {
     @POST("auth/refresh-token")
     Call<BaseDTO<TokenRefreshResponse>> refreshToken(@Body RegisterRequest request);
 
+
     // User endpoints
     @GET("users")
     Call<BaseDTO<List<User>>> getAllUsers();
@@ -41,6 +43,37 @@ public interface ApiService {
 
     @GET("users/username")
     Call<BaseDTO<User>> getUserByUsername(@Query("username") String username);
+
+
+    // Participant endpoints
+    @GET("participants/user/{userId}")
+    Call<BaseDTO<List<Participant>>> getParticipantsByUserId(@Path("userId") Long userId);
+
+    @GET("participants/user/{userId}/chat-partners")
+    Call<BaseDTO<List<Participant>>> getChatPartners(@Path("userId") Long userId);
+
+    @GET("participants/user/{userId}/personal-chat-partners")
+    Call<BaseDTO<List<Participant>>> getPersonalChatPartners(@Path("userId") Long userId);
+
+    @PUT("participants/user/{userId}/room/{chatRoomId}/read")
+    Call<BaseDTO<Participant>> updateLastReadMessageId(
+            @Path("userId") Long userId,
+            @Path("chatRoomId") Long chatRoomId,
+            @Query("messageId") Long messageId
+    );
+
+    @PUT("participants/user/{userId}/online")
+    Call<BaseDTO<Participant>> updateOnlineStatus(
+            @Path("userId") Long userId,
+            @Query("online") boolean online
+    );
+
+    @PUT("participants/user/{userId}/lastseen")
+    Call<BaseDTO<Participant>> updateLastSeen(
+            @Path("userId") Long userId,
+            @Query("lastSeen") String lastSeen
+    );
+
 
     // Chat room endpoints
     @GET("rooms")

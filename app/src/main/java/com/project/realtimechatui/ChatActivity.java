@@ -1,3 +1,4 @@
+
 package com.project.realtimechatui;
 
 import android.os.Bundle;
@@ -280,7 +281,14 @@ public class ChatActivity extends AppCompatActivity implements
             if (room.getType() == EnumRoomType.PERSONAL && room.getParticipants() != null) {
                 Set<Long> participantIds = new HashSet<>();
                 for (Participant participant : room.getParticipants()) {
-                    participantIds.add(participant.getUserId());
+                    // Fixed: Add null checks for participant and user
+                    if (participant != null && participant.getUserId() != null) {
+                        participantIds.add(participant.getUserId());
+                    } else {
+                        Log.w(TAG, "Participant or User is null in chat room: " + room.getId());
+                        // Skip this participant if data is incomplete
+                        continue;
+                    }
                 }
 
                 // Check if this room contains exactly our two users
@@ -303,20 +311,21 @@ public class ChatActivity extends AppCompatActivity implements
         }
 
         // Create ChatRoom DTO for personal chat
-        ChatRoom chatRoomDTO = new ChatRoom();
-        chatRoomDTO.setType(EnumRoomType.PERSONAL);
-        chatRoomDTO.setName(targetUsername); // Backend will handle the name
+        ChatRoom chatRoom = new ChatRoom();
+        chatRoom.setType(EnumRoomType.PERSONAL);
+        chatRoom.setName(targetUsername); // Backend will handle the name
 
         // Add target user as participant
         Set<Participant> participants = new HashSet<>();
         Participant targetParticipant = new Participant();
-        targetParticipant.setUserId(targetUserId);
+        targetParticipant.setUserId(targetUserId);  // ONLY set userId - remove all other fields
         participants.add(targetParticipant);
-        chatRoomDTO.setParticipants(participants);
+        chatRoom.setParticipants(participants);
 
         Log.d(TAG, "Creating personal chat room with user: " + targetUserId);
+        Log.d(TAG, "Sending ChatRoomDTO: " + new Gson().toJson(chatRoom)); // Add this for debugging
 
-        Call<BaseDTO<ChatRoom>> call = apiService.createChatRoom(chatRoomDTO, currentUserId);
+        Call<BaseDTO<ChatRoom>> call = apiService.createChatRoom(chatRoom, currentUserId);
         call.enqueue(new Callback<BaseDTO<ChatRoom>>() {
             @Override
             public void onResponse(Call<BaseDTO<ChatRoom>> call, Response<BaseDTO<ChatRoom>> response) {

@@ -26,8 +26,6 @@
             android:layout_height="0dp"
             android:layout_marginTop="24dp" />
 
-<!--        Add here-->
-
         <!-- Search Section -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -109,7 +107,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
-        tools:listitem="@layout/item_chat" />
+        tools:listitem="@layout/item_list_user" />
 
     <!-- Empty State -->
     <LinearLayout

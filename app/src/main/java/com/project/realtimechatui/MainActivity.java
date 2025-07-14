@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -19,10 +20,12 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.project.realtimechatui.adapters.UserListAdapter;
 import com.project.realtimechatui.adapters.UserSuggestionAdapter;
 import com.project.realtimechatui.api.ApiClient;
 import com.project.realtimechatui.api.ApiService;
 import com.project.realtimechatui.api.models.BaseDTO;
+import com.project.realtimechatui.api.models.Participant;
 import com.project.realtimechatui.api.models.User;
 import com.project.realtimechatui.utils.AuthDebugHelper;
 import com.project.realtimechatui.utils.SharedPrefManager;
@@ -32,17 +35,23 @@ import retrofit2.Callback;
 import retrofit2.Response;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity implements UserSuggestionAdapter.OnUserClickListener {
+public class MainActivity extends AppCompatActivity implements
+        UserListAdapter.OnUserClickListener,
+        UserSuggestionAdapter.OnUserClickListener {
 
+    private static final String TAG = "MainActivity";
     private EditText etSearch;
     private ImageView ivClearSearch, ivNewChat;
     private RecyclerView rvChatList;
     private LinearLayout llEmptyState;
     private ProgressBar pbLoading;
 
-    private UserSuggestionAdapter userAdapter;
+    private UserListAdapter userListAdapter;
+    private UserSuggestionAdapter userSuggestionAdapter;
     private ApiService apiService;
     private SharedPrefManager sharedPrefManager;
+
+    private boolean isSearchMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,15 +73,13 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
 
         // Debug auth status and test token
         AuthDebugHelper.logAuthStatus();
-        AuthDebugHelper.testTokenValidity(); // Add this line
-
-        setContentView(R.layout.activity_main);
+        AuthDebugHelper.testTokenValidity();
 
         initViews();
         setupRecyclerView();
         setupApiService();
         setupSearchFunctionality();
-        loadAllUsers();
+        loadParticipants();
     }
 
     private void redirectToLogin() {
@@ -90,9 +97,11 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
     }
 
     private void setupRecyclerView() {
-        userAdapter = new UserSuggestionAdapter(this, this);
+        userListAdapter = new UserListAdapter(this, this);
+        userSuggestionAdapter = new UserSuggestionAdapter(this, this);
+
         rvChatList.setLayoutManager(new LinearLayoutManager(this));
-        rvChatList.setAdapter(userAdapter);
+        rvChatList.setAdapter(userListAdapter); // Default adapter
     }
 
     private void setupApiService() {
@@ -108,11 +117,37 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 String query = s.toString().trim();
                 ivClearSearch.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
-                userAdapter.filter(query);
 
-                if (query.startsWith("@") && query.length() > 1) {
-                    String username = query.substring(1);
-                    searchUserByUsername(username);
+                if (!query.isEmpty()) {
+                    // Switch to search mode IMMEDIATELY when user starts typing
+                    if (!isSearchMode) {
+                        isSearchMode = true;
+                        rvChatList.setAdapter(userSuggestionAdapter);
+                        // Hide empty state when in search mode
+                        llEmptyState.setVisibility(View.GONE);
+                        rvChatList.setVisibility(View.VISIBLE);
+
+                        // Load all users for search if not already loaded
+                        if (userSuggestionAdapter.getItemCount() == 0) {
+                            loadAllUsersForSearch();
+                        }
+                    }
+
+                    // Filter existing users
+                    userSuggestionAdapter.filter(query);
+
+                    // If searching for specific username with @, also search via API
+                    if (query.startsWith("@") && query.length() > 1) {
+                        String username = query.substring(1);
+                        searchUserByUsername(username);
+                    }
+                } else {
+                    // Switch back to participant list mode
+                    if (isSearchMode) {
+                        isSearchMode = false;
+                        rvChatList.setAdapter(userListAdapter);
+                        updateUIState();
+                    }
                 }
             }
 
@@ -125,26 +160,93 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
             public void onClick(View v) {
                 etSearch.setText("");
                 etSearch.clearFocus();
+                // Switch back to participant list
+                if (isSearchMode) {
+                    isSearchMode = false;
+                    rvChatList.setAdapter(userListAdapter);
+                    updateUIState();
+                }
             }
         });
 
         ivNewChat.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                showAllUsers();
+                // Switch to search mode to find users
+                if (!isSearchMode) {
+                    isSearchMode = true;
+                    rvChatList.setAdapter(userSuggestionAdapter);
+                    llEmptyState.setVisibility(View.GONE);
+                    rvChatList.setVisibility(View.VISIBLE);
+
+                    // Load all users if not already loaded
+                    if (userSuggestionAdapter.getItemCount() == 0) {
+                        loadAllUsersForSearch();
+                    }
+                }
+                etSearch.requestFocus();
             }
         });
     }
 
-    private void loadAllUsers() {
+    private void loadParticipants() {
         showLoading(true);
 
+        Long currentUserId = sharedPrefManager.getId();
+        if (currentUserId == null || currentUserId == -1L) {
+            showError("User ID not found");
+            return;
+        }
+
+        Call<BaseDTO<List<Participant>>> call = apiService.getChatPartners(currentUserId);
+        call.enqueue(new Callback<BaseDTO<List<Participant>>>() {
+            @Override
+            public void onResponse(Call<BaseDTO<List<Participant>>> call, Response<BaseDTO<List<Participant>>> response) {
+                showLoading(false);
+
+                if (response.isSuccessful() && response.body() != null) {
+                    BaseDTO<List<Participant>> result = response.body();
+                    if (result.isSuccess() && result.getData() != null) {
+                        List<Participant> participants = result.getData();
+
+                        Log.d(TAG, "Loaded " + participants.size() + " chat partners");
+//                        for (Participant partner : participants) {
+//                            if (partner.getUser() != null) {
+//                                Log.d(TAG, "Chat partner: " + partner.getUser().getUsername());
+//                            }
+//                        }
+
+                        userListAdapter.setParticipants(participants);
+                        updateUIState();
+
+                        Log.d(TAG, "Loaded " + participants.size() + " chat participants");
+                    } else {
+                        showError("Failed to load participants: " + result.getMessage());
+                    }
+                } else {
+                    if (response.code() == 401) {
+                        handleUnauthorized();
+                    } else {
+                        showError("Failed to load participants");
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<BaseDTO<List<Participant>>> call, Throwable t) {
+                showLoading(false);
+                showError("Network error: " + t.getMessage());
+            }
+        });
+    }
+
+    // Load all users for search functionality
+    // This is used when user wants to start a new chat
+    private void loadAllUsersForSearch() {
         Call<BaseDTO<List<User>>> call = apiService.getAllUsers();
         call.enqueue(new Callback<BaseDTO<List<User>>>() {
             @Override
             public void onResponse(Call<BaseDTO<List<User>>> call, Response<BaseDTO<List<User>>> response) {
-                showLoading(false);
-
                 if (response.isSuccessful() && response.body() != null) {
                     BaseDTO<List<User>> result = response.body();
                     if (result.isSuccess() && result.getData() != null) {
@@ -153,25 +255,15 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
                         if (currentUserId != null && currentUserId != -1L) {
                             users.removeIf(user -> user.getId().equals(currentUserId));
                         }
-
-                        userAdapter.setUsers(users);
-                        updateUIState();
-                    } else {
-                        showError("Failed to load users: " + result.getMessage());
-                    }
-                } else {
-                    if (response.code() == 401) {
-                        handleUnauthorized();
-                    } else {
-                        showError("Failed to load users");
+                        userSuggestionAdapter.setUsers(users);
                     }
                 }
             }
 
             @Override
             public void onFailure(Call<BaseDTO<List<User>>> call, Throwable t) {
-                showLoading(false);
-                showError("Network error: " + t.getMessage());
+                // Handle error silently for search
+                Log.e(TAG, "Failed to load users for search", t);
             }
         });
     }
@@ -187,7 +279,22 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
                         User foundUser = result.getData();
                         Long currentUserId = sharedPrefManager.getId();
                         if (currentUserId == null || !foundUser.getId().equals(currentUserId)) {
-                            Toast.makeText(MainActivity.this, "User found: @" + foundUser.getUsername(), Toast.LENGTH_SHORT).show();
+                            // Run on UI thread to ensure proper updates
+                            runOnUiThread(() -> {
+                                // Show toast notification
+                                Toast.makeText(MainActivity.this, "User found: @" + foundUser.getUsername(), Toast.LENGTH_SHORT).show();
+
+                                // Add the found user to search results
+                                userSuggestionAdapter.addUser(foundUser);
+
+                                // Ensure we're in search mode and UI is visible
+                                if (isSearchMode) {
+                                    llEmptyState.setVisibility(View.GONE);
+                                    rvChatList.setVisibility(View.VISIBLE);
+                                }
+
+                                Log.d(TAG, "Added user to search results: " + foundUser.getUsername());
+                            });
                         }
                     }
                 }
@@ -195,14 +302,12 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
 
             @Override
             public void onFailure(Call<BaseDTO<User>> call, Throwable t) {
-                // Handle error silently for search
+                Log.e(TAG, "Search by username failed", t);
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Search failed: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                });
             }
         });
-    }
-
-    private void showAllUsers() {
-        etSearch.setText("");
-        loadAllUsers();
     }
 
     private void showLoading(boolean show) {
@@ -211,9 +316,15 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
     }
 
     private void updateUIState() {
-        boolean hasUsers = userAdapter.getItemCount() > 0;
-        rvChatList.setVisibility(hasUsers ? View.VISIBLE : View.GONE);
-        llEmptyState.setVisibility(hasUsers ? View.GONE : View.VISIBLE);
+        if (!isSearchMode) {
+            boolean hasParticipants = userListAdapter.getItemCount() > 0;
+            rvChatList.setVisibility(hasParticipants ? View.VISIBLE : View.GONE);
+            llEmptyState.setVisibility(hasParticipants ? View.GONE : View.VISIBLE);
+        } else {
+            // In search mode, always show the RecyclerView and hide empty state
+            rvChatList.setVisibility(View.VISIBLE);
+            llEmptyState.setVisibility(View.GONE);
+        }
     }
 
     private void showError(String message) {
@@ -226,7 +337,23 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
         redirectToLogin();
     }
 
-    // This method implements the OnUserClickListener interface
+    // UserListAdapter click listener (for participants)
+    @Override
+    public void onUserClick(Participant participant) {
+        if (participant != null) {
+//            User user = participant.getUser();
+            Intent intent = new Intent(this, ChatActivity.class);
+            intent.putExtra("user_id", participant.getId());
+            intent.putExtra("username", participant.getUsername());
+            intent.putExtra("full_name", participant.getFullName());
+            intent.putExtra("profile_picture", participant.getAvatarUrl());
+            intent.putExtra("chat_room_id", participant.getChatRoomId());
+            intent.putExtra("participant_id", participant.getId());
+            startActivity(intent);
+        }
+    }
+
+    // UserSuggestionAdapter click listener (for search results)
     @Override
     public void onUserClick(User user) {
         Intent intent = new Intent(this, ChatActivity.class);
@@ -235,5 +362,12 @@ public class MainActivity extends AppCompatActivity implements UserSuggestionAda
         intent.putExtra("full_name", user.getFullName());
         intent.putExtra("profile_picture", user.getAvatarUrl());
         startActivity(intent);
+
+        // Clear search and return to participant list
+        etSearch.setText("");
+        etSearch.clearFocus();
+        isSearchMode = false;
+        rvChatList.setAdapter(userListAdapter);
+        updateUIState();
     }
 }

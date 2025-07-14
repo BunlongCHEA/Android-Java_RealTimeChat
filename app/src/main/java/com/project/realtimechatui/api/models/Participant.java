@@ -1,11 +1,10 @@
+
 package com.project.realtimechatui.api.models;
 
 public class Participant {
     private Long id;
     private Long userId;
     private Long chatRoomId;
-    private String username;
-    private String fullName;
     private String role; // ADMIN, MEMBER
     private boolean muted;
     private boolean blocked;
@@ -13,18 +12,13 @@ public class Participant {
     private Long lastReadMessageId;
     private boolean online;
     private String lastSeen;
+    private String username;
+    private String fullName;
+    private String avatarUrl;
+
 
     // Constructors
     public Participant() {}
-
-    public Participant(Long userId) {
-        this.userId = userId;
-    }
-
-    public Participant(Long userId, String role) {
-        this.userId = userId;
-        this.role = role;
-    }
 
     public Long getId() {
         return id;
@@ -64,6 +58,14 @@ public class Participant {
 
     public void setFullName(String fullName) {
         this.fullName = fullName;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 
     public String getRole() {
