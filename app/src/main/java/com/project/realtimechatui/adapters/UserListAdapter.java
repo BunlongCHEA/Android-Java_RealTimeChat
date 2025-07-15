@@ -65,12 +65,6 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
         notifyDataSetChanged();
     }
 
-    // Keep this method for backward compatibility if needed
-    public void setParticipants(List<Participant> participants) {
-        // Convert participants to chat rooms if needed
-        // This method can be removed if not used elsewhere
-    }
-
     public void addChatRoom(ChatRoom chatRoom) {
         if (chatRoom != null) {
             chatRooms.add(0, chatRoom); // Add at top
