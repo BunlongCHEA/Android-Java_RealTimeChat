@@ -25,8 +25,10 @@ import com.project.realtimechatui.adapters.UserSuggestionAdapter;
 import com.project.realtimechatui.api.ApiClient;
 import com.project.realtimechatui.api.ApiService;
 import com.project.realtimechatui.api.models.BaseDTO;
+import com.project.realtimechatui.api.models.ChatRoom;
 import com.project.realtimechatui.api.models.Participant;
 import com.project.realtimechatui.api.models.User;
+import com.project.realtimechatui.enums.EnumRoomType;
 import com.project.realtimechatui.utils.AuthDebugHelper;
 import com.project.realtimechatui.utils.SharedPrefManager;
 
@@ -79,7 +81,17 @@ public class MainActivity extends AppCompatActivity implements
         setupRecyclerView();
         setupApiService();
         setupSearchFunctionality();
-        loadParticipants();
+//        loadParticipants();
+        loadChatRooms();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Refresh chat rooms when returning to this activity
+        if (!isSearchMode) {
+            loadChatRooms();
+        }
     }
 
     private void redirectToLogin() {
@@ -189,7 +201,59 @@ public class MainActivity extends AppCompatActivity implements
         });
     }
 
-    private void loadParticipants() {
+//    private void loadParticipants() {
+//        showLoading(true);
+//
+//        Long currentUserId = sharedPrefManager.getId();
+//        if (currentUserId == null || currentUserId == -1L) {
+//            showError("User ID not found");
+//            return;
+//        }
+//
+//        Call<BaseDTO<List<Participant>>> call = apiService.getChatPartners(currentUserId);
+//        call.enqueue(new Callback<BaseDTO<List<Participant>>>() {
+//            @Override
+//            public void onResponse(Call<BaseDTO<List<Participant>>> call, Response<BaseDTO<List<Participant>>> response) {
+//                showLoading(false);
+//
+//                if (response.isSuccessful() && response.body() != null) {
+//                    BaseDTO<List<Participant>> result = response.body();
+//                    if (result.isSuccess() && result.getData() != null) {
+//                        List<Participant> participants = result.getData();
+//
+//                        Log.d(TAG, "Loaded " + participants.size() + " chat partners");
+////                        for (Participant partner : participants) {
+////                            if (partner.getUser() != null) {
+////                                Log.d(TAG, "Chat partner: " + partner.getUser().getUsername());
+////                            }
+////                        }
+//
+//                        userListAdapter.setParticipants(participants);
+//                        updateUIState();
+//
+//                        Log.d(TAG, "Loaded " + participants.size() + " chat participants");
+//                    } else {
+//                        showError("Failed to load participants: " + result.getMessage());
+//                    }
+//                } else {
+//                    if (response.code() == 401) {
+//                        handleUnauthorized();
+//                    } else {
+//                        showError("Failed to load participants");
+//                    }
+//                }
+//            }
+//
+//            @Override
+//            public void onFailure(Call<BaseDTO<List<Participant>>> call, Throwable t) {
+//                showLoading(false);
+//                showError("Network error: " + t.getMessage());
+//            }
+//        });
+//    }
+
+    // Updated method to load chat rooms instead of participants
+    private void loadChatRooms() {
         showLoading(true);
 
         Long currentUserId = sharedPrefManager.getId();
@@ -198,44 +262,42 @@ public class MainActivity extends AppCompatActivity implements
             return;
         }
 
-        Call<BaseDTO<List<Participant>>> call = apiService.getChatPartners(currentUserId);
-        call.enqueue(new Callback<BaseDTO<List<Participant>>>() {
+        Call<BaseDTO<List<ChatRoom>>> call = apiService.getChatRoomsByUserId(currentUserId);
+        call.enqueue(new Callback<BaseDTO<List<ChatRoom>>>() {
             @Override
-            public void onResponse(Call<BaseDTO<List<Participant>>> call, Response<BaseDTO<List<Participant>>> response) {
+            public void onResponse(Call<BaseDTO<List<ChatRoom>>> call, Response<BaseDTO<List<ChatRoom>>> response) {
                 showLoading(false);
 
                 if (response.isSuccessful() && response.body() != null) {
-                    BaseDTO<List<Participant>> result = response.body();
+                    BaseDTO<List<ChatRoom>> result = response.body();
                     if (result.isSuccess() && result.getData() != null) {
-                        List<Participant> participants = result.getData();
+                        List<ChatRoom> chatRooms = result.getData();
 
-                        Log.d(TAG, "Loaded " + participants.size() + " chat partners");
-//                        for (Participant partner : participants) {
-//                            if (partner.getUser() != null) {
-//                                Log.d(TAG, "Chat partner: " + partner.getUser().getUsername());
-//                            }
-//                        }
+                        Log.d(TAG, "Loaded " + chatRooms.size() + " chat rooms");
+                        for (ChatRoom room : chatRooms) {
+                            Log.d(TAG, "Chat room: " + room.getName() +
+                                    " (" + room.getType() + "), Last message: " + room.getLastMessageContent());
+                        }
 
-                        userListAdapter.setParticipants(participants);
+                        userListAdapter.setChatRooms(chatRooms);
                         updateUIState();
-
-                        Log.d(TAG, "Loaded " + participants.size() + " chat participants");
                     } else {
-                        showError("Failed to load participants: " + result.getMessage());
+                        showError("Failed to load chat rooms: " + result.getMessage());
                     }
                 } else {
                     if (response.code() == 401) {
                         handleUnauthorized();
                     } else {
-                        showError("Failed to load participants");
+                        showError("Failed to load chat rooms. Response code: " + response.code());
                     }
                 }
             }
 
             @Override
-            public void onFailure(Call<BaseDTO<List<Participant>>> call, Throwable t) {
+            public void onFailure(Call<BaseDTO<List<ChatRoom>>> call, Throwable t) {
                 showLoading(false);
                 showError("Network error: " + t.getMessage());
+                Log.e(TAG, "Failed to load chat rooms", t);
             }
         });
     }
@@ -317,9 +379,9 @@ public class MainActivity extends AppCompatActivity implements
 
     private void updateUIState() {
         if (!isSearchMode) {
-            boolean hasParticipants = userListAdapter.getItemCount() > 0;
-            rvChatList.setVisibility(hasParticipants ? View.VISIBLE : View.GONE);
-            llEmptyState.setVisibility(hasParticipants ? View.GONE : View.VISIBLE);
+            boolean hasChatRooms = userListAdapter.getItemCount() > 0;
+            rvChatList.setVisibility(hasChatRooms ? View.VISIBLE : View.GONE);
+            llEmptyState.setVisibility(hasChatRooms ? View.GONE : View.VISIBLE);
         } else {
             // In search mode, always show the RecyclerView and hide empty state
             rvChatList.setVisibility(View.VISIBLE);
@@ -339,18 +401,27 @@ public class MainActivity extends AppCompatActivity implements
 
     // UserListAdapter click listener (for participants)
     @Override
-    public void onUserClick(Participant participant) {
-        if (participant != null) {
-//            User user = participant.getUser();
-            Intent intent = new Intent(this, ChatActivity.class);
-            intent.putExtra("user_id", participant.getId());
-            intent.putExtra("username", participant.getUsername());
-            intent.putExtra("full_name", participant.getFullName());
-            intent.putExtra("profile_picture", participant.getAvatarUrl());
-            intent.putExtra("chat_room_id", participant.getChatRoomId());
-            intent.putExtra("participant_id", participant.getId());
-            startActivity(intent);
+    public void onUserClick(ChatRoom chatRoom, Participant otherParticipant) {
+        if (chatRoom == null) {
+            return;
         }
+
+        Intent intent = new Intent(this, ChatActivity.class);
+        intent.putExtra("chat_room_id", chatRoom.getId());
+
+        if (chatRoom.getType() == EnumRoomType.PERSONAL && otherParticipant != null) {
+            // Personal chat - pass other user's info
+            intent.putExtra("user_id", otherParticipant.getId());
+            intent.putExtra("username", otherParticipant.getUsername());
+            intent.putExtra("full_name", otherParticipant.getFullName());
+            intent.putExtra("profile_picture", otherParticipant.getAvatarUrl());
+        } else {
+            // Group chat or channel - pass room info
+            intent.putExtra("room_name", chatRoom.getName());
+            intent.putExtra("room_type", chatRoom.getType().name());
+        }
+
+        startActivity(intent);
     }
 
     // UserSuggestionAdapter click listener (for search results)

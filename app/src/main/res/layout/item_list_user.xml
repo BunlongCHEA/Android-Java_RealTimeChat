@@ -4,105 +4,109 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="?android:attr/selectableItemBackground"
-    android:clickable="true"
-    android:focusable="true"
-    android:padding="12dp">
+    android:padding="16dp">
 
+    <!-- Profile Picture with Online Status -->
+    <FrameLayout
+        android:id="@+id/flProfileContainer"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:id="@+id/ivProfilePicture"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/search_background"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_person" />
+
+        <View
+            android:id="@+id/vOnlineStatus"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="2dp"
+            android:layout_marginBottom="2dp"
+            android:background="@drawable/online_status_indicator"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <!-- Main Content Area -->
     <LinearLayout
+        android:id="@+id/llMainContent"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="@+id/flProfileContainer"
+        app:layout_constraintEnd_toStartOf="@+id/tvLastMessageTime"
+        app:layout_constraintStart_toEndOf="@+id/flProfileContainer"
+        app:layout_constraintTop_toTopOf="@+id/flProfileContainer">
 
-        <!-- Profile Picture Container -->
-        <androidx.cardview.widget.CardView
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            app:cardCornerRadius="28dp"
-            app:cardElevation="2dp">
-
-            <ImageView
-                android:id="@+id/ivProfilePicture"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:src="@drawable/ic_person"
-                android:scaleType="centerCrop"
-                android:background="#E3F2FD" />
-
-            <!-- Online Status Indicator -->
-            <View
-                android:id="@+id/vOnlineStatus"
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:layout_gravity="bottom|end"
-                android:layout_margin="2dp"
-                android:background="@drawable/online_status_indicator"
-                android:visibility="gone" />
-
-        </androidx.cardview.widget.CardView>
-
-        <!-- User Info Container -->
+        <!-- Header Section with Username and Full Name -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="8dp">
+            android:orientation="vertical">
 
-            <!-- Username -->
             <TextView
                 android:id="@+id/tvUsername"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@username"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="#1976D2"
+                android:ellipsize="end"
                 android:maxLines="1"
-                android:ellipsize="end" />
+                android:text="@username"
+                android:textColor="@android:color/black"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
-            <!-- Full Name -->
             <TextView
                 android:id="@+id/tvFullName"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Full Name"
-                android:textSize="14sp"
-                android:textColor="#424242"
-                android:layout_marginTop="2dp"
-                android:maxLines="1"
-                android:ellipsize="end" />
-
-            <!-- Last Read Message Info -->
-            <TextView
-                android:id="@+id/tvLastReadMessage"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Last read message"
-                android:textSize="12sp"
-                android:textColor="#757575"
-                android:layout_marginTop="4dp"
-                android:maxLines="1"
                 android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Full Name"
+                android:textColor="@android:color/darker_gray"
+                android:textSize="14sp"
                 android:visibility="gone" />
 
         </LinearLayout>
 
-        <!-- Last Seen Time -->
-        <TextView
-            android:id="@+id/tvLastSeen"
-            android:layout_width="wrap_content"
+        <!-- Last Message Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="2m ago"
-            android:textSize="12sp"
-            android:textColor="#9E9E9E"
-            android:gravity="center" />
+            android:layout_marginTop="4dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvLastMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="Last message content..."
+                android:textColor="@android:color/darker_gray"
+                android:textSize="14sp" />
+
+        </LinearLayout>
 
     </LinearLayout>
+
+    <!-- Timestamp -->
+    <TextView
+        android:id="@+id/tvLastMessageTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="2m"
+        android:textColor="@android:color/darker_gray"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/flProfileContainer" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

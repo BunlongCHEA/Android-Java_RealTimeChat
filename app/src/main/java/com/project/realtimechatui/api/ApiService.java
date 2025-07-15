@@ -82,6 +82,9 @@ public interface ApiService {
     @GET("rooms/{id}")
     Call<BaseDTO<ChatRoom>> getChatRoomById(@Path("id") Long id);
 
+    @GET("rooms/user/{userId}")
+    Call<BaseDTO<List<ChatRoom>>> getChatRoomsByUserId(@Path("userId") Long userId);
+
     @POST("rooms")
     Call<BaseDTO<ChatRoom>> createChatRoom(@Body ChatRoom chatRoomDTO, @Query("currentUserId") Long currentUserId);
 

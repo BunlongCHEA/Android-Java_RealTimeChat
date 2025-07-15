@@ -17,6 +17,26 @@ public class ChatRoom {
     private String lastMessageType;
     private Integer lastMessageAttachmentCount;
 
+
+    // Helper method to get the other participant (for PERSONAL chats)
+    public Participant getOtherParticipant(Long currentUserId) {
+        if (participants != null) {
+            for (Participant participant : participants) {
+                if (participant.getUserId() != null && !participant.getUserId().equals(currentUserId)) {
+                    return participant;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Helper method to check if there's a last message
+    public boolean hasLastMessage() {
+        return lastMessageContent != null && !lastMessageContent.trim().isEmpty();
+    }
+
+
+    // Getters and Setters
     public Long getId() {
         return id;
     }
