@@ -1,6 +1,8 @@
 package com.project.realtimechatui.adapters;
 
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -49,7 +51,7 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     public int getItemViewType(int position) {
         ChatMessage message = messages.get(position);
 
-        if (message.isSystemMessage()) {
+        if (message.isSystemMessage() || isDateSeparator(message)) {
             return VIEW_TYPE_MESSAGE_SYSTEM;
         } else if (message.isFromCurrentUser(sharedPrefManager.getId())) {
             return VIEW_TYPE_MESSAGE_SENT;
@@ -87,7 +89,7 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 ((ReceivedMessageViewHolder) holder).bind(message);
                 break;
             case VIEW_TYPE_MESSAGE_SYSTEM:
-                ((SystemMessageViewHolder) holder).bind(message);
+                ((SystemMessageViewHolder) holder).bind(message, isDateSeparator(message));
                 break;
         }
     }
@@ -100,26 +102,25 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     // Public methods for managing messages
     public void setMessages(List<ChatMessage> messages) {
         this.messages.clear();
-        messageIds.clear(); // Also clear the message IDs set
+        messageIds.clear();
 
         if (messages != null) {
-            // Sort messages by timestamp before adding (oldest first) - ADD THIS
             Collections.sort(messages, new Comparator<ChatMessage>() {
                 @Override
                 public int compare(ChatMessage m1, ChatMessage m2) {
                     try {
                         long time1 = parseTimestamp(m1.getTimestamp());
                         long time2 = parseTimestamp(m2.getTimestamp());
-                        return Long.compare(time1, time2); // Ascending order
+                        return Long.compare(time1, time2);
                     } catch (Exception e) {
                         return 0;
                     }
                 }
             });
 
-            // Add messages and track IDs
             for (ChatMessage message : messages) {
-                if (message.getId() != null) {
+                // Only track real messages (positive IDs)
+                if (message.getId() != null && message.getId() > 0) {
                     messageIds.add(message.getId());
                 }
             }
@@ -130,23 +131,27 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         notifyDataSetChanged();
     }
 
+    // Add clear messages method
+    public void clearMessages() {
+        this.messages.clear();
+        this.messageIds.clear();
+        notifyDataSetChanged();
+    }
+
     private long parseTimestamp(String timestamp) {
         try {
             if (TextUtils.isEmpty(timestamp)) {
                 return 0;
             }
 
-            // If timestamp is in milliseconds
             if (timestamp.matches("\\d{13}")) {
                 return Long.parseLong(timestamp);
             }
 
-            // If timestamp is in seconds, convert to milliseconds
             if (timestamp.matches("\\d{10}")) {
                 return Long.parseLong(timestamp) * 1000;
             }
 
-            // Try to parse ISO format
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
             Date date = sdf.parse(timestamp);
             return date != null ? date.getTime() : System.currentTimeMillis();
@@ -159,6 +164,12 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     public void addMessage(ChatMessage message) {
         if (message != null && !isDuplicateMessage(message)) {
             messages.add(message);
+
+            // Only track positive IDs (real messages)
+            if (message.getId() != null && message.getId() > 0) {
+                messageIds.add(message.getId());
+            }
+
             notifyItemInserted(messages.size() - 1);
         }
     }
@@ -187,16 +198,18 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     }
 
     private boolean isDuplicateMessage(ChatMessage newMessage) {
-        if (newMessage.getId() == null) {
+        if (newMessage.getId() == null || newMessage.getId() < 0) {
+            // Virtual messages (negative IDs) are never considered duplicates
             return false;
         }
+        return messageIds.contains(newMessage.getId());
 
-        for (ChatMessage existingMessage : messages) {
-            if (newMessage.getId().equals(existingMessage.getId())) {
-                return true;
-            }
-        }
-        return false;
+//        for (ChatMessage existingMessage : messages) {
+//            if (newMessage.getId().equals(existingMessage.getId())) {
+//                return true;
+//            }
+//        }
+//        return false;
     }
 
     private String formatTimestamp(String timestamp) {
@@ -205,13 +218,11 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 return "";
             }
 
-            // Try to parse as milliseconds first
             long timestampLong;
             if (timestamp.length() == 13) {
                 timestampLong = Long.parseLong(timestamp);
             } else {
-                // Try to parse as ISO format
-                timestampLong = System.currentTimeMillis(); // fallback
+                timestampLong = System.currentTimeMillis();
             }
 
             Date date = new Date(timestampLong);
@@ -219,6 +230,16 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         } catch (Exception e) {
             return "";
         }
+    }
+
+    // Add method to identify system messages as date separators
+    private boolean isDateSeparator(ChatMessage message) {
+        return message.getType() != null &&
+                message.getType().equals("SYSTEM") &&
+                (message.getContent().contains("Today") ||
+                        message.getContent().contains("Yesterday") ||
+                        message.getContent().matches(".*\\d{2}:\\d{2}.*") ||
+                        message.getContent().matches(".*\\d{2}/\\d{2}/\\d{4}.*"));
     }
 
     // ViewHolder for sent messages (right side)
@@ -239,7 +260,6 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         }
 
         public void bind(ChatMessage message) {
-            // Set sender name
             String senderName = message.getSenderName();
             if (TextUtils.isEmpty(senderName)) {
                 senderName = "User " + message.getSenderId();
@@ -249,19 +269,15 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             tvMessageContent.setText(message.getContent());
             tvTimestamp.setText(formatTimestamp(message.getTimestamp()));
 
-            // Show edited indicator
             if (message.isEdited()) {
                 tvEditedIndicator.setVisibility(View.VISIBLE);
             } else {
                 tvEditedIndicator.setVisibility(View.GONE);
             }
 
-            // Set message status icon (you can enhance this based on your needs)
             ivMessageStatus.setImageResource(R.drawable.ic_check);
 
-            // Handle long click for message options (edit, delete, etc.)
             itemView.setOnLongClickListener(v -> {
-                // TODO: Show message options dialog
                 return true;
             });
         }
@@ -285,7 +301,6 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         }
 
         public void bind(ChatMessage message) {
-            // Set sender name
             String senderName = message.getSenderName();
             if (TextUtils.isEmpty(senderName)) {
                 senderName = "User " + message.getSenderId();
@@ -295,28 +310,19 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             tvMessageContent.setText(message.getContent());
             tvTimestamp.setText(formatTimestamp(message.getTimestamp()));
 
-            // Show edited indicator
             if (message.isEdited()) {
                 tvEditedIndicator.setVisibility(View.VISIBLE);
             } else {
                 tvEditedIndicator.setVisibility(View.GONE);
             }
 
-            // Load user avatar (you can use Glide here)
-            // Glide.with(context)
-            //     .load(userAvatarUrl)
-            //     .placeholder(R.drawable.ic_person)
-            //     .into(ivUserAvatar);
-
-            // Handle long click for message options
             itemView.setOnLongClickListener(v -> {
-                // TODO: Show message options dialog (reply, copy, etc.)
                 return true;
             });
         }
     }
 
-    // ViewHolder for system messages (center)
+    // ViewHolder for system messages (center) - UPDATED
     public class SystemMessageViewHolder extends RecyclerView.ViewHolder {
         private TextView tvSystemMessage;
 
@@ -325,8 +331,26 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             tvSystemMessage = itemView.findViewById(R.id.tvSystemMessage);
         }
 
-        public void bind(ChatMessage message) {
+        public void bind(ChatMessage message, boolean isDateSeparator) {
             tvSystemMessage.setText(message.getContent());
+
+            if (isDateSeparator) {
+                // Style as date separator
+                tvSystemMessage.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                tvSystemMessage.setTypeface(tvSystemMessage.getTypeface(), Typeface.ITALIC);
+                tvSystemMessage.setTextColor(Color.GRAY);
+                tvSystemMessage.setTextSize(12); // Smaller text for date separators
+
+                // Add some padding for better visual separation
+                tvSystemMessage.setPadding(16, 8, 16, 8);
+            } else {
+                // Regular system message styling
+                tvSystemMessage.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                tvSystemMessage.setTypeface(tvSystemMessage.getTypeface(), Typeface.NORMAL);
+                tvSystemMessage.setTextColor(Color.DKGRAY);
+                tvSystemMessage.setTextSize(14);
+                tvSystemMessage.setPadding(16, 4, 16, 4);
+            }
         }
     }
 }

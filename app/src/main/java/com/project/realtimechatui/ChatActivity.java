@@ -235,7 +235,6 @@ public class ChatActivity extends AppCompatActivity implements
     }
 
     private void findExistingChatRoom() {
-        // First, try to find if a personal chat room already exists between current user and target user
         Long currentUserId = sharedPrefManager.getId();
 
         if (currentUserId == null || targetUserId == null || targetUserId == -1) {
@@ -243,62 +242,104 @@ public class ChatActivity extends AppCompatActivity implements
             return;
         }
 
-        // Get all chat rooms and find personal chat with target user
-        Call<BaseDTO<List<ChatRoom>>> call = apiService.getAllChatRooms();
+        Log.d(TAG, "Looking for existing chat between user " + currentUserId + " and " + targetUserId);
+
+        // Use getChatRoomsByUserId to get only user's chat rooms (more efficient)
+        Call<BaseDTO<List<ChatRoom>>> call = apiService.getChatRoomsByUserId(currentUserId);
         call.enqueue(new Callback<BaseDTO<List<ChatRoom>>>() {
             @Override
             public void onResponse(Call<BaseDTO<List<ChatRoom>>> call, Response<BaseDTO<List<ChatRoom>>> response) {
+                Log.d(TAG, "Response code: " + response.code());
+
                 if (response.isSuccessful() && response.body() != null) {
                     BaseDTO<List<ChatRoom>> result = response.body();
                     if (result.isSuccess() && result.getData() != null) {
-                        ChatRoom existingRoom = findPersonalChatRoom(result.getData(), currentUserId, targetUserId);
+                        List<ChatRoom> userChatRooms = result.getData();
+                        Log.d(TAG, "Found " + userChatRooms.size() + " chat rooms for user " + currentUserId);
+
+                        // Debug: Print all chat rooms
+                        for (ChatRoom room : userChatRooms) {
+                            Log.d(TAG, "Room " + room.getId() + ": " + room.getName() + " (" + room.getType() + ")");
+                            if (room.getParticipants() != null) {
+                                for (Participant p : room.getParticipants()) {
+                                    Log.d(TAG, "  Participant: " + p.getUserId());
+                                }
+                            }
+                        }
+
+                        ChatRoom existingRoom = findPersonalChatRoom(userChatRooms, currentUserId, targetUserId);
                         if (existingRoom != null) {
                             // Found existing chat room
                             chatRoomId = existingRoom.getId();
-                            Log.d(TAG, "Found existing chat room: " + chatRoomId);
+                            Log.d(TAG, "✅ Found existing chat room: " + chatRoomId + " for users " + currentUserId + " and " + targetUserId);
+
+                            // Clear any existing messages before loading
+                            messageAdapter.clearMessages();
+
                             joinChatRoom();
                             loadChatMessages();
+                            return;
                         } else {
-                            // No existing chat room, create new one
-                            createPersonalChatRoom();
+                            Log.d(TAG, "❌ No existing personal chat found, creating new one");
                         }
+                    } else {
+                        Log.e(TAG, "API returned error: " + (result != null ? result.getMessage() : "null result"));
                     }
                 } else {
-                    createPersonalChatRoom(); // Fallback to creating new room
+                    Log.e(TAG, "Failed to get user chat rooms: " + response.code() + " - " + response.message());
+                    try {
+                        if (response.errorBody() != null) {
+                            Log.e(TAG, "Error body: " + response.errorBody().string());
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error reading error body", e);
+                    }
                 }
+
+                // If we reach here, no existing room was found or there was an error
+                createPersonalChatRoom();
             }
 
             @Override
             public void onFailure(Call<BaseDTO<List<ChatRoom>>> call, Throwable t) {
-                Log.e(TAG, "Failed to get chat rooms", t);
-                createPersonalChatRoom(); // Fallback to creating new room
+                Log.e(TAG, "Network error getting chat rooms", t);
+                createPersonalChatRoom();
             }
         });
     }
 
     private ChatRoom findPersonalChatRoom(List<ChatRoom> chatRooms, Long currentUserId, Long targetUserId) {
+        Log.d(TAG, "🔍 Searching for personal chat between " + currentUserId + " and " + targetUserId);
+
         for (ChatRoom room : chatRooms) {
+            Log.d(TAG, "Checking room: " + room.getId() + ", type: " + room.getType() + ", name: " + room.getName());
+
             if (room.getType() == EnumRoomType.PERSONAL && room.getParticipants() != null) {
                 Set<Long> participantIds = new HashSet<>();
+
                 for (Participant participant : room.getParticipants()) {
-                    // Fixed: Add null checks for participant and user
                     if (participant != null && participant.getUserId() != null) {
                         participantIds.add(participant.getUserId());
-                    } else {
-                        Log.w(TAG, "Participant or User is null in chat room: " + room.getId());
-                        // Skip this participant if data is incomplete
-                        continue;
+                        Log.d(TAG, "  Found participant: " + participant.getUserId());
                     }
                 }
+
+                Log.d(TAG, "  Participant count: " + participantIds.size());
+                Log.d(TAG, "  Participants: " + participantIds.toString());
+                Log.d(TAG, "  Contains current user (" + currentUserId + "): " + participantIds.contains(currentUserId));
+                Log.d(TAG, "  Contains target user (" + targetUserId + "): " + participantIds.contains(targetUserId));
 
                 // Check if this room contains exactly our two users
                 if (participantIds.size() == 2 &&
                         participantIds.contains(currentUserId) &&
                         participantIds.contains(targetUserId)) {
+                    Log.d(TAG, "✅ Found matching personal chat room: " + room.getId());
                     return room;
                 }
             }
         }
+
+        Log.d(TAG, "❌ No matching personal chat room found");
         return null;
     }
 

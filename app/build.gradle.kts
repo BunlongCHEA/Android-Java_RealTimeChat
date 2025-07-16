@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.project.realtimechatui"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.project.realtimechatui"
