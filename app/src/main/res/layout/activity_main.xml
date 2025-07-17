@@ -39,7 +39,7 @@
                 android:layout_height="48dp"
                 android:layout_weight="1"
                 android:orientation="horizontal"
-                android:background="@drawable/search_background"
+                android:background="@drawable/background_white_search"
                 android:gravity="center_vertical"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp">
@@ -84,7 +84,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_add_chat"
-                android:background="@drawable/fab_background"
+                android:background="@drawable/background_blue"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginStart="12dp"

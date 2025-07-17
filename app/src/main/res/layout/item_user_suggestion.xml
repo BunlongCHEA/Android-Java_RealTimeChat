@@ -64,7 +64,7 @@
             android:id="@+id/vOnlineStatus"
             android:layout_width="12dp"
             android:layout_height="12dp"
-            android:background="@drawable/online_status_indicator"
+            android:background="@drawable/background_green_online_status_indicator"
             android:visibility="gone" />
 
     </LinearLayout>

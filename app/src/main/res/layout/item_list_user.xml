@@ -18,7 +18,7 @@
             android:id="@+id/ivProfilePicture"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@drawable/search_background"
+            android:background="@drawable/background_white_search"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_person" />
 
@@ -29,7 +29,7 @@
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="2dp"
             android:layout_marginBottom="2dp"
-            android:background="@drawable/online_status_indicator"
+            android:background="@drawable/background_green_online_status_indicator"
             android:visibility="gone" />
 
     </FrameLayout>
