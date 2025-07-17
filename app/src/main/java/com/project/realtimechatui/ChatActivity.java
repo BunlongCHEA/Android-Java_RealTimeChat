@@ -46,6 +46,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -242,6 +243,12 @@ public class ChatActivity extends AppCompatActivity implements
             return;
         }
 
+        // Add validation to prevent chatting with self
+        if (currentUserId.equals(targetUserId)) {
+            showError("Cannot chat with yourself");
+            return;
+        }
+
         Log.d(TAG, "Looking for existing chat between user " + currentUserId + " and " + targetUserId);
 
         // Use getChatRoomsByUserId to get only user's chat rooms (more efficient)
@@ -257,9 +264,16 @@ public class ChatActivity extends AppCompatActivity implements
                         List<ChatRoom> userChatRooms = result.getData();
                         Log.d(TAG, "Found " + userChatRooms.size() + " chat rooms for user " + currentUserId);
 
-                        // Debug: Print all chat rooms
-                        for (ChatRoom room : userChatRooms) {
-                            Log.d(TAG, "Room " + room.getId() + ": " + room.getName() + " (" + room.getType() + ")");
+                        // Filter for personal chats only to improve performance
+                        List<ChatRoom> personalChats = userChatRooms.stream()
+                                .filter(room -> room.getType() == EnumRoomType.PERSONAL)
+                                .collect(Collectors.toList());
+
+                        Log.d(TAG, "Found " + personalChats.size() + " personal chat rooms");
+
+                        // Debug: Print all personal chat rooms
+                        for (ChatRoom room : personalChats) {
+                            Log.d(TAG, "Personal Room " + room.getId() + ": " + room.getName());
                             if (room.getParticipants() != null) {
                                 for (Participant p : room.getParticipants()) {
                                     Log.d(TAG, "  Participant: " + p.getUserId());
@@ -267,7 +281,7 @@ public class ChatActivity extends AppCompatActivity implements
                             }
                         }
 
-                        ChatRoom existingRoom = findPersonalChatRoom(userChatRooms, currentUserId, targetUserId);
+                        ChatRoom existingRoom = findPersonalChatRoom(personalChats, currentUserId, targetUserId);
                         if (existingRoom != null) {
                             // Found existing chat room
                             chatRoomId = existingRoom.getId();
@@ -275,7 +289,6 @@ public class ChatActivity extends AppCompatActivity implements
 
                             // Clear any existing messages before loading
                             messageAdapter.clearMessages();
-
                             joinChatRoom();
                             loadChatMessages();
                             return;
@@ -303,7 +316,8 @@ public class ChatActivity extends AppCompatActivity implements
             @Override
             public void onFailure(Call<BaseDTO<List<ChatRoom>>> call, Throwable t) {
                 Log.e(TAG, "Network error getting chat rooms", t);
-                createPersonalChatRoom();
+                showError("Network error: " + t.getMessage());
+                // Don't auto-create room on network failure
             }
         });
     }
@@ -315,8 +329,9 @@ public class ChatActivity extends AppCompatActivity implements
             Log.d(TAG, "Checking room: " + room.getId() + ", type: " + room.getType() + ", name: " + room.getName());
 
             if (room.getType() == EnumRoomType.PERSONAL && room.getParticipants() != null) {
-                Set<Long> participantIds = new HashSet<>();
 
+                // Count participants and collect their IDs
+                Set<Long> participantIds = new HashSet<>();
                 for (Participant participant : room.getParticipants()) {
                     if (participant != null && participant.getUserId() != null) {
                         participantIds.add(participant.getUserId());
@@ -326,15 +341,19 @@ public class ChatActivity extends AppCompatActivity implements
 
                 Log.d(TAG, "  Participant count: " + participantIds.size());
                 Log.d(TAG, "  Participants: " + participantIds.toString());
-                Log.d(TAG, "  Contains current user (" + currentUserId + "): " + participantIds.contains(currentUserId));
-                Log.d(TAG, "  Contains target user (" + targetUserId + "): " + participantIds.contains(targetUserId));
 
-                // Check if this room contains exactly our two users
-                if (participantIds.size() == 2 &&
-                        participantIds.contains(currentUserId) &&
-                        participantIds.contains(targetUserId)) {
-                    Log.d(TAG, "✅ Found matching personal chat room: " + room.getId());
-                    return room;
+                // For personal chat, must have exactly 2 participants
+                if (participantIds.size() == 2) {
+                    Log.d(TAG, "  Contains current user (" + currentUserId + "): " + participantIds.contains(currentUserId));
+                    Log.d(TAG, "  Contains target user (" + targetUserId + "): " + participantIds.contains(targetUserId));
+
+                    // Check if this room contains exactly our two users
+                    if (participantIds.contains(currentUserId) && participantIds.contains(targetUserId)) {
+                        Log.d(TAG, "✅ Found matching personal chat room: " + room.getId());
+                        return room;
+                    }
+                } else {
+                    Log.d(TAG, "  ❌ Wrong participant count: " + participantIds.size() + " (expected 2)");
                 }
             }
         }
@@ -359,7 +378,7 @@ public class ChatActivity extends AppCompatActivity implements
         // Add target user as participant
         Set<Participant> participants = new HashSet<>();
         Participant targetParticipant = new Participant();
-        targetParticipant.setUserId(targetUserId);  // ONLY set userId - remove all other fields
+        targetParticipant.setUserId(targetUserId);
         participants.add(targetParticipant);
         chatRoom.setParticipants(participants);
 

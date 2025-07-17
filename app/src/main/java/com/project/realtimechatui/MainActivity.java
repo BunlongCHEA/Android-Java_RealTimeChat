@@ -411,7 +411,7 @@ public class MainActivity extends AppCompatActivity implements
 
         if (chatRoom.getType() == EnumRoomType.PERSONAL && otherParticipant != null) {
             // Personal chat - pass other user's info
-            intent.putExtra("user_id", otherParticipant.getId());
+            intent.putExtra("user_id", otherParticipant.getUserId());
             intent.putExtra("username", otherParticipant.getUsername());
             intent.putExtra("full_name", otherParticipant.getFullName());
             intent.putExtra("profile_picture", otherParticipant.getAvatarUrl());
