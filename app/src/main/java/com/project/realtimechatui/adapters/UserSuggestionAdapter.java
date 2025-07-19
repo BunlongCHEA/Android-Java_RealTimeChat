@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 
 public class UserSuggestionAdapter extends RecyclerView.Adapter<UserSuggestionAdapter.UserViewHolder> {
 
-    private List<User> users;
+    public List<User> users;
     private List<User> filteredUsers;
     private Context context;
     private OnUserClickListener listener;
@@ -154,6 +154,8 @@ public class UserSuggestionAdapter extends RecyclerView.Adapter<UserSuggestionAd
         return false;
     }
 
+
+
     public class UserViewHolder extends RecyclerView.ViewHolder {
         private ImageView ivProfilePicture;
         private TextView tvUsername;
@@ -180,7 +182,7 @@ public class UserSuggestionAdapter extends RecyclerView.Adapter<UserSuggestionAd
 
         public void bind(User user) {
             if (user.getUsername() != null) {
-                tvUsername.setText("@" + user.getUsername());
+                tvUsername.setText(user.getUsername());
             } else {
                 tvUsername.setText("@unknown");
             }

@@ -19,9 +19,12 @@ import com.project.realtimechatui.utils.SharedPrefManager;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserViewHolder> {
 
@@ -62,7 +65,44 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
     // Updated method to accept ChatRoom list instead of Participant list
     public void setChatRooms(List<ChatRoom> chatRooms) {
         this.chatRooms = chatRooms != null ? chatRooms : new ArrayList<>();
+
+        // Sort chat rooms by last message timestamp (newest first)
+        Collections.sort(this.chatRooms, new Comparator<ChatRoom>() {
+            @Override
+            public int compare(ChatRoom room1, ChatRoom room2) {
+                try {
+                    String timestamp1 = room1.getLastMessageTimestamp();
+                    String timestamp2 = room2.getLastMessageTimestamp();
+
+                    if (timestamp1 == null && timestamp2 == null) return 0;
+                    if (timestamp1 == null) return 1; // room1 goes to bottom
+                    if (timestamp2 == null) return -1; // room2 goes to bottom
+
+                    long time1 = parseTimestamp(timestamp1);
+                    long time2 = parseTimestamp(timestamp2);
+
+                    return Long.compare(time2, time1); // Descending order (newest first)
+                } catch (Exception e) {
+                    return 0;
+                }
+            }
+        });
+
         notifyDataSetChanged();
+    }
+
+    private long parseTimestamp(String timestamp) {
+        try {
+            if (TextUtils.isEmpty(timestamp)) {
+                return 0;
+            }
+
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+            Date date = sdf.parse(timestamp);
+            return date != null ? date.getTime() : 0;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     public void addChatRoom(ChatRoom chatRoom) {
@@ -98,7 +138,12 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
         private TextView tvFullName;
         private TextView tvLastMessage;
         private TextView tvLastMessageTime;
+        private TextView tvUnreadBadge;
         private View vOnlineStatus;
+        private ImageView ivChatTypeIcon;
+        private ImageView ivChatTypeIndicator;
+        private ImageView ivMutedIndicator;
+        private ImageView ivPinnedIndicator;
 
         public UserViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -107,7 +152,12 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
             tvFullName = itemView.findViewById(R.id.tvFullName);
             tvLastMessage = itemView.findViewById(R.id.tvLastMessage);
             tvLastMessageTime = itemView.findViewById(R.id.tvLastMessageTime);
+            tvUnreadBadge = itemView.findViewById(R.id.tvUnreadBadge);
             vOnlineStatus = itemView.findViewById(R.id.vOnlineStatus);
+            ivChatTypeIcon = itemView.findViewById(R.id.ivChatTypeIcon);
+            ivChatTypeIndicator = itemView.findViewById(R.id.ivChatTypeIndicator);
+            ivMutedIndicator = itemView.findViewById(R.id.ivMutedIndicator);
+            ivPinnedIndicator = itemView.findViewById(R.id.ivPinnedIndicator);
 
             itemView.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -118,6 +168,7 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                         Long currentUserId = sharedPrefManager.getId();
                         Participant otherParticipant = null;
 
+                        // Only get other participant for personal chats
                         if (chatRoom.getType() == EnumRoomType.PERSONAL) {
                             otherParticipant = chatRoom.getOtherParticipant(currentUserId);
                         }
@@ -136,16 +187,48 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
             Long currentUserId = sharedPrefManager.getId();
             String currentUsername = sharedPrefManager.getUsername();
 
-            if (chatRoom.getType() == EnumRoomType.PERSONAL) {
-                bindPersonalChat(chatRoom, currentUserId);
-            } else if (chatRoom.getType() == EnumRoomType.GROUP) {
-                bindGroupChat(chatRoom, currentUserId, currentUsername);
-            } else {
-                bindChannelChat(chatRoom, currentUserId, currentUsername);
+            // Reset all indicators
+            resetIndicators();
+
+            // Bind based on chat room type
+            switch (chatRoom.getType()) {
+                case PERSONAL:
+                    bindPersonalChat(chatRoom, currentUserId);
+                    break;
+                case GROUP:
+                    bindGroupChat(chatRoom, currentUserId, currentUsername);
+                    break;
+                case CHANNEL:
+                    bindChannelChat(chatRoom, currentUserId, currentUsername);
+                    break;
+                default:
+                    bindUnknownChat(chatRoom);
+                    break;
             }
+
+//            if (chatRoom.getType() == EnumRoomType.PERSONAL) {
+//                bindPersonalChat(chatRoom, currentUserId);
+//            } else if (chatRoom.getType() == EnumRoomType.GROUP) {
+//                bindGroupChat(chatRoom, currentUserId, currentUsername);
+//            } else {
+//                bindChannelChat(chatRoom, currentUserId, currentUsername);
+//            }
 
             // Set last message content (common for all types)
             bindLastMessage(chatRoom, currentUsername);
+
+            // Set additional features
+            bindAdditionalFeatures(chatRoom, currentUserId);
+        }
+
+        private void resetIndicators() {
+            vOnlineStatus.setVisibility(View.GONE);
+            ivChatTypeIcon.setVisibility(View.GONE);
+            ivChatTypeIndicator.setVisibility(View.GONE);
+            ivMutedIndicator.setVisibility(View.GONE);
+            ivPinnedIndicator.setVisibility(View.GONE);
+            tvUnreadBadge.setVisibility(View.GONE);
+            tvFullName.setVisibility(View.GONE);
         }
 
         private void bindPersonalChat(ChatRoom chatRoom, Long currentUserId) {
@@ -154,25 +237,30 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
 
             if (otherParticipant != null) {
                 // Set username
-                if (otherParticipant.getUsername() != null && !otherParticipant.getUsername().isEmpty()) {
-                    tvUsername.setText(otherParticipant.getUsername());
+                String username = otherParticipant.getUsername();
+                if (username != null && !username.isEmpty()) {
+//                    tvUsername.setText("@" + username);
+                    tvUsername.setText(username);
                 } else {
                     tvUsername.setText("@unknown");
                 }
 
-                // Set full name
-                if (otherParticipant.getFullName() != null && !otherParticipant.getFullName().isEmpty()) {
-                    tvFullName.setText(otherParticipant.getFullName());
-                    tvFullName.setVisibility(View.VISIBLE);
-                } else {
-                    tvFullName.setVisibility(View.GONE);
-                }
+//                // Set full name
+//                String fullName = otherParticipant.getFullName();
+//                if (fullName != null && !fullName.isEmpty()) {
+//                    tvFullName.setText(fullName);
+//                    tvFullName.setVisibility(View.VISIBLE);
+//                }
 
                 // Set online status for personal chats
                 vOnlineStatus.setVisibility(otherParticipant.isOnline() ? View.VISIBLE : View.GONE);
 
                 // Load profile picture
                 loadProfilePicture(otherParticipant.getAvatarUrl(), false);
+
+                // Set personal chat type indicator (optional)
+                ivChatTypeIndicator.setImageResource(R.drawable.ic_person);
+                ivChatTypeIndicator.setVisibility(View.VISIBLE);
             } else {
                 setUnknownUser();
             }
@@ -195,6 +283,10 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
             // No online status for group chats
             vOnlineStatus.setVisibility(View.GONE);
 
+            // Show group type indicator
+            ivChatTypeIcon.setImageResource(R.drawable.ic_group);
+            ivChatTypeIcon.setVisibility(View.VISIBLE);
+
             // Group chat icon
             loadProfilePicture(null, true);
         }
@@ -216,8 +308,21 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
             // No online status for channels
             vOnlineStatus.setVisibility(View.GONE);
 
+            // Show channel type indicator
+            ivChatTypeIcon.setImageResource(R.drawable.ic_channel);
+            ivChatTypeIcon.setVisibility(View.VISIBLE);
+
             // Channel icon
+            loadProfilePicture(null, false);
             ivProfilePicture.setImageResource(R.drawable.ic_channel);
+        }
+
+        private void bindUnknownChat(ChatRoom chatRoom) {
+            tvUsername.setText(chatRoom.getName() != null ? chatRoom.getName() : "Unknown Chat");
+            tvFullName.setText("Unknown type");
+            tvFullName.setVisibility(View.VISIBLE);
+            vOnlineStatus.setVisibility(View.GONE);
+            ivProfilePicture.setImageResource(R.drawable.ic_search);
         }
 
         private void bindLastMessage(ChatRoom chatRoom, String currentUsername) {
@@ -226,10 +331,10 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                 String lastMessageText = chatRoom.getLastMessageContent();
                 String senderUsername = chatRoom.getLastMessageSenderUsername();
 
-                // For group chats or channels, always show sender name
-                // For personal chats, show sender name only if it's not the current user
+                // Handle message display based on chat type and sender
                 if (chatRoom.getType() != EnumRoomType.PERSONAL) {
-                    // Group chat or channel - always show sender
+                    // Personal chat - show "You:" only if current user sent it
+                    // For Other user will sent username
                     if (senderUsername != null && !senderUsername.isEmpty()) {
                         if (senderUsername.equals(currentUsername)) {
                             lastMessageText = "You: " + lastMessageText;
@@ -237,12 +342,15 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                             lastMessageText = senderUsername + ": " + lastMessageText;
                         }
                     }
-                } else {
-                    // Personal chat - show "You:" only if current user sent it
-                    if (senderUsername != null && senderUsername.equals(currentUsername)) {
-                        lastMessageText = "You: " + lastMessageText;
+                }  else {
+                    // Group chat or channel - always show sender name
+                    if (senderUsername != null && !senderUsername.isEmpty()) {
+                        if (senderUsername.equals(currentUsername)) {
+                            lastMessageText = "You: " + lastMessageText;
+                        } else {
+                            lastMessageText = senderUsername + ": " + lastMessageText;
+                        }
                     }
-                    // If other user sent it, just show the message without prefix
                 }
 
                 tvLastMessage.setText(lastMessageText);
@@ -258,14 +366,57 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                 }
             } else {
                 // No messages yet
-                if (chatRoom.getType() == EnumRoomType.PERSONAL) {
-                    tvLastMessage.setText("Start a conversation");
-                } else {
-                    tvLastMessage.setText("No messages yet");
+                switch (chatRoom.getType()) {
+                    case PERSONAL:
+                        tvLastMessage.setText("Start a conversation");
+                        break;
+                    case GROUP:
+                        tvLastMessage.setText("No messages yet");
+                        break;
+                    case CHANNEL:
+                        tvLastMessage.setText("No posts yet");
+                        break;
+                    default:
+                        tvLastMessage.setText("No messages");
+                        break;
                 }
+
                 tvLastMessage.setVisibility(View.VISIBLE);
                 tvLastMessageTime.setVisibility(View.GONE);
             }
+        }
+
+        private void bindAdditionalFeatures(ChatRoom chatRoom, Long currentUserId) {
+            // Show unread message count (if available)
+            // Uncomment when unread count is implemented
+//            if (chatRoom.getUnreadCount() > 0) {
+//                tvUnreadBadge.setText(String.valueOf(chatRoom.getUnreadCount()));
+//                tvUnreadBadge.setVisibility(View.VISIBLE);
+//            } else {
+//                tvUnreadBadge.setVisibility(View.GONE);
+//            }
+
+
+            // Show muted indicator
+            Participant currentParticipant = chatRoom.getCurrentParticipant(currentUserId);
+            if (currentParticipant != null && currentParticipant.isMuted()) {
+                ivMutedIndicator.setVisibility(View.VISIBLE);
+            } else {
+                ivMutedIndicator.setVisibility(View.GONE);
+            }
+
+            // Show pinned indicator
+//            if (chatRoom.isPinned()) {
+//                ivPinnedIndicator.setVisibility(View.VISIBLE);
+//            } else {
+//                ivPinnedIndicator.setVisibility(View.GONE);
+//            }
+
+            // Show admin badge for group/channel admins
+//            if ((chatRoom.getType() == EnumRoomType.GROUP || chatRoom.getType() == EnumRoomType.CHANNEL)
+//                    && currentParticipant != null && "ADMIN".equals(currentParticipant.getRole())) {
+//                // Could add an admin badge here if needed
+//            }
         }
 
         private void loadProfilePicture(String avatarUrl, boolean isGroup) {
@@ -300,10 +451,15 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                 if (timestamp.contains("T")) {
                     inputFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
                 } else {
+//                    inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
                     inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+                    inputFormat.setTimeZone(TimeZone.getTimeZone("UTC")); // ensure consistent parsing if needed
                 }
 
                 Date messageDate = inputFormat.parse(timestamp);
+
+                android.util.Log.e("UserListAdapter", "inputFormat: " + inputFormat);
+                android.util.Log.e("UserListAdapter", "messageDate: " + messageDate);
 
                 if (messageDate != null) {
                     long diffInMillis = System.currentTimeMillis() - messageDate.getTime();
@@ -321,6 +477,7 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                         return diffInDays + "d";
                     } else {
                         SimpleDateFormat outputFormat = new SimpleDateFormat("MMM dd", Locale.getDefault());
+                        outputFormat.setTimeZone(TimeZone.getDefault());
                         return outputFormat.format(messageDate);
                     }
                 }

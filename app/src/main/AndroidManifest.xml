@@ -22,10 +22,7 @@
             android:name=".adapters.UserSuggestionAdapter"
             android:exported="false" />
         <activity
-            android:name=".UserSearchActivity"
-            android:exported="false" />
-        <activity
-            android:name=".adapters.ChatAdapter"
+            android:name=".GroupChatActivity"
             android:exported="false" />
         <activity
             android:name=".LoginActivity"

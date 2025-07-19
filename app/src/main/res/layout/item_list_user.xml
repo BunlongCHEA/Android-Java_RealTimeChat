@@ -22,6 +22,7 @@
             android:scaleType="centerCrop"
             android:src="@drawable/ic_person" />
 
+        <!-- Online Status Indicator (only for personal chats) -->
         <View
             android:id="@+id/vOnlineStatus"
             android:layout_width="12dp"
@@ -32,6 +33,19 @@
             android:background="@drawable/background_green_online_status_indicator"
             android:visibility="gone" />
 
+        <!-- Group/Channel Type Indicator -->
+        <ImageView
+            android:id="@+id/ivChatTypeIndicator"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="2dp"
+            android:layout_marginBottom="2dp"
+            android:background="@drawable/ic_group"
+            android:padding="2dp"
+            android:scaleType="centerInside"
+            android:visibility="gone" />
+
     </FrameLayout>
 
     <!-- Main Content Area -->
@@ -39,24 +53,26 @@
         android:id="@+id/llMainContent"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="8dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="12dp"
         android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="@+id/flProfileContainer"
-        app:layout_constraintEnd_toStartOf="@+id/tvLastMessageTime"
+        app:layout_constraintEnd_toStartOf="@+id/llTimeAndBadge"
         app:layout_constraintStart_toEndOf="@+id/flProfileContainer"
         app:layout_constraintTop_toTopOf="@+id/flProfileContainer">
 
-        <!-- Header Section with Username and Full Name -->
+        <!-- Header Section with Username/Group Name -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/tvUsername"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:text="@username"
@@ -64,49 +80,111 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/tvFullName"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:text="Full Name"
-                android:textColor="@android:color/darker_gray"
-                android:textSize="14sp"
+            <!-- Chat Type Icon (Group/Channel indicator) -->
+            <ImageView
+                android:id="@+id/ivChatTypeIcon"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:src="@drawable/ic_group"
                 android:visibility="gone" />
 
         </LinearLayout>
 
+        <!-- Subtitle Section (Full Name or Member Count) -->
+        <TextView
+            android:id="@+id/tvFullName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Full Name"
+            android:textColor="@android:color/darker_gray"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <!-- Last Message Section -->
-        <LinearLayout
+        <TextView
+            android:id="@+id/tvLastMessage"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/tvLastMessage"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:text="Last message content..."
-                android:textColor="@android:color/darker_gray"
-                android:textSize="14sp" />
-
-        </LinearLayout>
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="Last message content..."
+            android:textColor="@android:color/darker_gray"
+            android:textSize="14sp" />
 
     </LinearLayout>
 
-    <!-- Timestamp -->
-    <TextView
-        android:id="@+id/tvLastMessageTime"
+    <!-- Time and Badge Section -->
+    <LinearLayout
+        android:id="@+id/llTimeAndBadge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="2m"
-        android:textColor="@android:color/darker_gray"
-        android:textSize="12sp"
+        android:orientation="vertical"
+        android:gravity="end"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@+id/flProfileContainer" />
+        app:layout_constraintTop_toTopOf="@+id/flProfileContainer">
+
+        <!-- Timestamp -->
+        <TextView
+            android:id="@+id/tvLastMessageTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="2m"
+            android:textColor="@android:color/darker_gray"
+            android:textSize="12sp" />
+
+        <!-- Unread Message Badge -->
+        <TextView
+            android:id="@+id/tvUnreadBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/background_red_unread_offline"
+            android:minWidth="20dp"
+            android:gravity="center"
+            android:padding="4dp"
+            android:text="3"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- Muted Indicator -->
+        <ImageView
+            android:id="@+id/ivMutedIndicator"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="4dp"
+            android:src="@drawable/ic_mute"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <!-- Pinned Chat Indicator -->
+    <ImageView
+        android:id="@+id/ivPinnedIndicator"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginStart="4dp"
+        android:src="@drawable/ic_pin"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Divider (optional) -->
+    <View
+        android:id="@+id/divider"
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_marginTop="16dp"
+        android:background="#1A000000"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@+id/llMainContent"
+        app:layout_constraintTop_toBottomOf="@+id/llMainContent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,4 +1,3 @@
-
 package com.project.realtimechatui;
 
 import static com.project.realtimechatui.utils.Constants.TYPING_TIMEOUT;
@@ -25,10 +24,10 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.gson.Gson;
 import com.project.realtimechatui.adapters.ChatMessageAdapter;
-import com.project.realtimechatui.api.ApiService;
+import com.project.realtimechatui.adapters.UserListAdapter;
 import com.project.realtimechatui.api.ApiClient;
+import com.project.realtimechatui.api.ApiService;
 import com.project.realtimechatui.api.models.BaseDTO;
 import com.project.realtimechatui.api.models.ChatMessage;
 import com.project.realtimechatui.api.models.ChatRoom;
@@ -39,7 +38,6 @@ import com.project.realtimechatui.utils.SharedPrefManager;
 import com.project.realtimechatui.websocket.WebSocketChatManager;
 
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -48,31 +46,28 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class ChatActivity extends AppCompatActivity implements
+public class GroupChatActivity extends AppCompatActivity implements
         WebSocketChatManager.ChatMessageListener,
         WebSocketChatManager.ConnectionListener {
 
-    private static final String TAG = "ChatActivity";
+    private static final String TAG = "GroupChatActivity";
 
     // UI Components
-    private TextView tvUserName, tvUserStatus, tvConnectionStatus, tvTypingIndicator;
-    private ImageView ivBack, ivUserProfile;
+    private TextView tvGroupName, tvMemberCount, tvConnectionStatus, tvTypingIndicator;
+    private ImageView ivBack, ivGroupProfile, ivGroupInfo;
     private RecyclerView rvMessages;
     private EditText etMessage;
     private CardView cvSend;
 
-    // User and Chat Data
-    private Long targetUserId;
-    private String targetUsername;
-    private String targetFullName;
-    private String targetProfilePicture;
+    // Group Data
+    private ChatRoom chatRoom;
     private Long chatRoomId;
+    private boolean isNewGroup;
 
     // Services and Managers
     private WebSocketChatManager webSocketManager;
@@ -95,7 +90,7 @@ public class ChatActivity extends AppCompatActivity implements
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_chat);
+        setContentView(R.layout.activity_group_chat);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -113,35 +108,35 @@ public class ChatActivity extends AppCompatActivity implements
         setupApiService();
         setupMessageInput();
 
-        // Check if we need to find existing chat room first
-//        findExistingChatRoom();
-
-        // Enhanced: Check if we have chat_room_id from MainActivity
-        chatRoomId = getIntent().getLongExtra("chat_room_id", -1);
-        if (chatRoomId != -1) {
-            // Existing chat room - join and load messages
-            Log.d(TAG, "Using existing chat room: " + chatRoomId);
+        if (isNewGroup) {
+            // For new groups, join immediately
             joinChatRoom();
-            loadChatMessages();
         } else {
-            // New personal chat - find or create chat room
-            Log.d(TAG, "Finding or creating personal chat room");
-            findOrCreatePersonalChatRoom();
+            // For existing groups, load messages
+            loadChatMessages();
+            joinChatRoom();
         }
     }
 
     private void initViews() {
-        tvUserName = findViewById(R.id.tvUserName);
-        tvUserStatus = findViewById(R.id.tvUserStatus);
+        tvGroupName = findViewById(R.id.tvGroupName);
+        tvMemberCount = findViewById(R.id.tvMemberCount);
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
         tvTypingIndicator = findViewById(R.id.tvTypingIndicator);
         ivBack = findViewById(R.id.ivBack);
-        ivUserProfile = findViewById(R.id.ivUserProfile);
+        ivGroupProfile = findViewById(R.id.ivGroupProfile);
+        ivGroupInfo = findViewById(R.id.ivGroupInfo);
         rvMessages = findViewById(R.id.rvMessages);
         etMessage = findViewById(R.id.etMessage);
         cvSend = findViewById(R.id.cvSend);
 
         ivBack.setOnClickListener(v -> finish());
+
+        // Group info click listener
+        ivGroupInfo.setOnClickListener(v -> {
+            // TODO: Open group info activity
+            Toast.makeText(this, "Group info coming soon", Toast.LENGTH_SHORT).show();
+        });
 
         // Initially hide typing indicator
         tvTypingIndicator.setVisibility(View.GONE);
@@ -151,31 +146,31 @@ public class ChatActivity extends AppCompatActivity implements
     }
 
     private void getIntentData() {
-        targetUserId = getIntent().getLongExtra("user_id", -1);
-        targetUsername = getIntent().getStringExtra("username");
-        targetFullName = getIntent().getStringExtra("full_name");
-        targetProfilePicture = getIntent().getStringExtra("profile_picture");
+        chatRoom = (ChatRoom) getIntent().getSerializableExtra("chat_room");
+        isNewGroup = getIntent().getBooleanExtra("is_new_group", false);
 
-        Log.d(TAG, "Target User ID: " + targetUserId);
-        Log.d(TAG, "Target Username: " + targetUsername);
+        if (chatRoom != null) {
+            chatRoomId = chatRoom.getId();
 
-        // Validate required data for personal chat
-        if (targetUserId == -1 || TextUtils.isEmpty(targetUsername)) {
-            showError("Invalid user data");
+            // Set group name
+            String groupName = chatRoom.getName();
+            if (groupName == null || groupName.isEmpty()) {
+                groupName = "Group Chat";
+            }
+            tvGroupName.setText(groupName);
+
+            // Set member count
+            int memberCount = chatRoom.getParticipants() != null ? chatRoom.getParticipants().size() : 0;
+            tvMemberCount.setText(memberCount + " members");
+
+            Log.d(TAG, "Group Chat Room ID: " + chatRoomId);
+            Log.d(TAG, "Group Name: " + groupName);
+            Log.d(TAG, "Is New Group: " + isNewGroup);
+        } else {
+            Log.e(TAG, "No chat room data received");
+            showError("No group data found");
             finish();
-            return;
         }
-
-        // Prevent chatting with self
-        Long currentUserId = sharedPrefManager.getId();
-        if (currentUserId != null && currentUserId.equals(targetUserId)) {
-            showError("Cannot chat with yourself");
-            finish();
-            return;
-        }
-
-        tvUserName.setText(!TextUtils.isEmpty(targetFullName) ? targetFullName : "@" + targetUsername);
-        tvUserStatus.setText("Online");
     }
 
     private void setupRecyclerView() {
@@ -264,158 +259,6 @@ public class ChatActivity extends AppCompatActivity implements
         }
     }
 
-    private void findOrCreatePersonalChatRoom() {
-        Long currentUserId = sharedPrefManager.getId();
-
-        if (currentUserId == null || targetUserId == null || targetUserId == -1) {
-            showError("Invalid user data");
-            return;
-        }
-
-        Log.d(TAG, "Looking for existing personal chat between user " + currentUserId + " and " + targetUserId);
-
-        // Use getChatRoomsByUserId to get only user's chat rooms
-        Call<BaseDTO<List<ChatRoom>>> call = apiService.getChatRoomsByUserId(currentUserId);
-        call.enqueue(new Callback<BaseDTO<List<ChatRoom>>>() {
-            @Override
-            public void onResponse(Call<BaseDTO<List<ChatRoom>>> call, Response<BaseDTO<List<ChatRoom>>> response) {
-                Log.d(TAG, "Response code: " + response.code());
-
-                if (response.isSuccessful() && response.body() != null) {
-                    BaseDTO<List<ChatRoom>> result = response.body();
-                    if (result.isSuccess() && result.getData() != null) {
-                        List<ChatRoom> userChatRooms = result.getData();
-                        Log.d(TAG, "Found " + userChatRooms.size() + " chat rooms for user " + currentUserId);
-
-                        // Filter for personal chats only to improve performance
-                        List<ChatRoom> personalChats = userChatRooms.stream()
-                                .filter(room -> room.getType() == EnumRoomType.PERSONAL)
-                                .collect(Collectors.toList());
-
-                        ChatRoom existingRoom = findPersonalChatRoom(personalChats, currentUserId, targetUserId);
-                        if (existingRoom != null) {
-                            // Found existing chat room
-                            chatRoomId = existingRoom.getId();
-                            Log.d(TAG, "✅ Found existing Personal chat room: " + chatRoomId + " for users " + currentUserId + " and " + targetUserId);
-
-                            // Clear any existing messages before loading
-                            messageAdapter.clearMessages();
-                            joinChatRoom();
-                            loadChatMessages();
-                            return;
-                        } else {
-                            Log.d(TAG, "❌ No existing personal chat found, creating new one");
-                            createPersonalChatRoom();
-                        }
-                    } else {
-                        Log.e(TAG, "API returned error: " + (result != null ? result.getMessage() : "null result"));
-                        createPersonalChatRoom();
-                    }
-                } else {
-                    Log.e(TAG, "Failed to get user chat rooms: " + response.code());
-                    createPersonalChatRoom();
-                }
-            }
-
-            @Override
-            public void onFailure(Call<BaseDTO<List<ChatRoom>>> call, Throwable t) {
-                Log.e(TAG, "Network error getting chat rooms", t);
-                showError("Network error: " + t.getMessage());
-            }
-        });
-    }
-
-    private ChatRoom findPersonalChatRoom(List<ChatRoom> chatRooms, Long currentUserId, Long targetUserId) {
-        Log.d(TAG, "🔍 Searching for personal chat between " + currentUserId + " and " + targetUserId);
-
-        for (ChatRoom room : chatRooms) {
-            Log.d(TAG, "Checking room: " + room.getId() + ", type: " + room.getType() + ", name: " + room.getName());
-
-            if (room.getType() == EnumRoomType.PERSONAL && room.getParticipants() != null) {
-
-                // Count participants and collect their IDs
-                Set<Long> participantIds = new HashSet<>();
-                for (Participant participant : room.getParticipants()) {
-                    if (participant != null && participant.getUserId() != null) {
-                        participantIds.add(participant.getUserId());
-                        Log.d(TAG, "  Found participant: " + participant.getUserId());
-                    }
-                }
-
-                // For personal chat, must have exactly 2 participants: current user and target user
-                if (participantIds.size() == 2 &&
-                        participantIds.contains(currentUserId) &&
-                        participantIds.contains(targetUserId)) {
-                    return room;
-                }
-            }
-        }
-
-        Log.d(TAG, "❌ No matching personal chat room found");
-        return null;
-    }
-
-    private void createPersonalChatRoom() {
-        Long currentUserId = sharedPrefManager.getId();
-
-        if (currentUserId == null) {
-            showError("User not logged in");
-            return;
-        }
-
-        // Create ChatRoom DTO for personal chat
-        ChatRoom chatRoom = new ChatRoom();
-        chatRoom.setType(EnumRoomType.PERSONAL);
-        chatRoom.setName(targetUsername); // Backend will handle the name
-
-        // Add target user as participant
-        Set<Participant> participants = new HashSet<>();
-        Participant targetParticipant = new Participant();
-        targetParticipant.setUserId(targetUserId);
-        participants.add(targetParticipant);
-        chatRoom.setParticipants(participants);
-
-        Log.d(TAG, "Creating personal chat room with user: " + targetUserId);
-
-        Call<BaseDTO<ChatRoom>> call = apiService.createChatRoom(chatRoom, currentUserId);
-        call.enqueue(new Callback<BaseDTO<ChatRoom>>() {
-            @Override
-            public void onResponse(Call<BaseDTO<ChatRoom>> call, Response<BaseDTO<ChatRoom>> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    BaseDTO<ChatRoom> result = response.body();
-                    if (result.isSuccess() && result.getData() != null) {
-                        chatRoomId = result.getData().getId();
-                        Log.d(TAG, "Created chat room: " + chatRoomId);
-                        joinChatRoom();
-                        loadChatMessages();
-                    } else {
-                        showError("Failed to create chat room: " + result.getMessage());
-                    }
-                } else {
-                    if (response.code() == 400 && response.errorBody() != null) {
-                        try {
-                            String errorBody = response.errorBody().string();
-                            if (errorBody.contains("personal chat already exists")) {
-                                // Chat room already exists, try to find it again
-                                findOrCreatePersonalChatRoom();
-                                return;
-                            }
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error parsing error response", e);
-                        }
-                    }
-                    showError("Failed to create chat room");
-                }
-            }
-
-            @Override
-            public void onFailure(Call<BaseDTO<ChatRoom>> call, Throwable t) {
-                Log.e(TAG, "Failed to create chat room", t);
-                showError("Network error: " + t.getMessage());
-            }
-        });
-    }
-
     private void joinChatRoom() {
         if (chatRoomId != null && webSocketManager.isConnected()) {
             webSocketManager.subscribeToChatRoom(chatRoomId);
@@ -436,15 +279,14 @@ public class ChatActivity extends AppCompatActivity implements
                     if (result.isSuccess() && result.getData() != null) {
                         List<ChatMessage> messages = result.getData();
 
-                        // Sort messages by timestamp (oldest first, latest at bottom) - ADD THIS
+                        // Sort messages by timestamp (oldest first, latest at bottom)
                         Collections.sort(messages, new Comparator<ChatMessage>() {
                             @Override
                             public int compare(ChatMessage m1, ChatMessage m2) {
                                 try {
-                                    // Parse timestamps and compare
                                     long time1 = parseTimestamp(m1.getTimestamp());
                                     long time2 = parseTimestamp(m2.getTimestamp());
-                                    return Long.compare(time1, time2); // Ascending order (oldest first)
+                                    return Long.compare(time1, time2);
                                 } catch (Exception e) {
                                     return 0;
                                 }
@@ -514,7 +356,7 @@ public class ChatActivity extends AppCompatActivity implements
             return;
         }
 
-        // Set sending state - ADD THIS
+        // Set sending state
         isSendingMessage = true;
         lastSentContent = messageText;
         lastSentTime = currentTime;
@@ -562,8 +404,13 @@ public class ChatActivity extends AppCompatActivity implements
             tvTypingIndicator.setVisibility(View.VISIBLE);
             if (typingUsers.size() == 1) {
                 tvTypingIndicator.setText(typingUsers.iterator().next() + " is typing...");
+            } else if (typingUsers.size() == 2) {
+                Iterator<String> iterator = typingUsers.iterator();
+                String user1 = iterator.next();
+                String user2 = iterator.next();
+                tvTypingIndicator.setText(user1 + " and " + user2 + " are typing...");
             } else {
-                tvTypingIndicator.setText("Multiple users are typing...");
+                tvTypingIndicator.setText(typingUsers.size() + " people are typing...");
             }
         }
     }
@@ -616,9 +463,8 @@ public class ChatActivity extends AppCompatActivity implements
     @Override
     public void onUserStatusChanged(Long userId, boolean isOnline) {
         runOnUiThread(() -> {
-            if (userId.equals(targetUserId)) {
-                tvUserStatus.setText(isOnline ? "Online" : "Offline");
-            }
+            // Update member online status if needed
+            Log.d(TAG, "User " + userId + " is now " + (isOnline ? "online" : "offline"));
         });
     }
 
@@ -635,16 +481,16 @@ public class ChatActivity extends AppCompatActivity implements
     @Override
     public void onUserJoined(String username) {
         runOnUiThread(() -> {
-            // Handle user joined event if needed
-            Log.d(TAG, "User joined: " + username);
+            Log.d(TAG, "User joined group: " + username);
+            // Could show a system message or update member count
         });
     }
 
     @Override
     public void onUserLeft(String username) {
         runOnUiThread(() -> {
-            // Handle user left event if needed
-            Log.d(TAG, "User left: " + username);
+            Log.d(TAG, "User left group: " + username);
+            // Could show a system message or update member count
         });
     }
 

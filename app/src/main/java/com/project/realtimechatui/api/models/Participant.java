@@ -1,7 +1,9 @@
 
 package com.project.realtimechatui.api.models;
 
-public class Participant {
+import java.io.Serializable;
+
+public class Participant implements Serializable {
     private Long id;
     private Long userId;
     private Long chatRoomId;

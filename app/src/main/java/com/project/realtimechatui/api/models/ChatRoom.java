@@ -2,13 +2,14 @@ package com.project.realtimechatui.api.models;
 
 import com.project.realtimechatui.enums.EnumRoomType;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Set;
 
-public class ChatRoom {
+public class ChatRoom implements Serializable {
     private Long id;
     private String name;
-    private EnumRoomType type; // Changed from String to EnumRoomType
+    private EnumRoomType type;
     private Set<Participant> participants;
     private Long lastMessageId;
     private String lastMessageContent;
@@ -20,11 +21,23 @@ public class ChatRoom {
 
     // Helper method to get the other participant (for PERSONAL chats)
     public Participant getOtherParticipant(Long currentUserId) {
-        if (participants != null) {
-            for (Participant participant : participants) {
-                if (participant.getUserId() != null && !participant.getUserId().equals(currentUserId)) {
-                    return participant;
-                }
+        if (participants == null || currentUserId == null) return null;
+
+        for (Participant participant : participants) {
+            if (participant.getUserId() != null && !participant.getUserId().equals(currentUserId)) {
+                return participant;
+            }
+        }
+        return null;
+    }
+
+    // Method to get current user's participant info
+    public Participant getCurrentParticipant(Long currentUserId) {
+        if (participants == null || currentUserId == null) return null;
+
+        for (Participant participant : participants) {
+            if (participant.getUserId().equals(currentUserId)) {
+                return participant;
             }
         }
         return null;

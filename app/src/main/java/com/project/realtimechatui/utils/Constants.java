@@ -71,4 +71,5 @@ public class Constants {
     // Typing Indicator Constants
     public static final long TYPING_INDICATOR_DELAY = 3000; // 3 seconds
     public static final int HEARTBEAT_INTERVAL = 10000; // 10 seconds
+    public static final int TYPING_TIMEOUT = 3000; // 3 seconds
 }
