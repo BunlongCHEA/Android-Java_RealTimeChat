@@ -448,21 +448,28 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
             try {
                 // Handle different timestamp formats
                 SimpleDateFormat inputFormat;
+                Date messageDate = null;
+
                 if (timestamp.contains("T")) {
                     inputFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+                    inputFormat.setTimeZone(TimeZone.getTimeZone("UTC")); // Parse as UTC
+                    messageDate = inputFormat.parse(timestamp);
                 } else {
 //                    inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
                     inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
-                    inputFormat.setTimeZone(TimeZone.getTimeZone("UTC")); // ensure consistent parsing if needed
+                    inputFormat.setTimeZone(TimeZone.getTimeZone("UTC")); // Parse as UTC
+                    messageDate = inputFormat.parse(timestamp);
                 }
-
-                Date messageDate = inputFormat.parse(timestamp);
 
                 android.util.Log.e("UserListAdapter", "inputFormat: " + inputFormat);
                 android.util.Log.e("UserListAdapter", "messageDate: " + messageDate);
 
                 if (messageDate != null) {
-                    long diffInMillis = System.currentTimeMillis() - messageDate.getTime();
+                    // Convert UTC time to local timezone for display
+                    long messageTimeInLocal = messageDate.getTime(); // This is already in local time after parsing
+                    long currentTime = System.currentTimeMillis();
+
+                    long diffInMillis = currentTime - messageTimeInLocal;
                     long diffInMinutes = diffInMillis / (60 * 1000);
                     long diffInHours = diffInMinutes / 60;
                     long diffInDays = diffInHours / 24;
@@ -476,8 +483,9 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
                     } else if (diffInDays < 7) {
                         return diffInDays + "d";
                     } else {
+                        // For dates older than 7 days, show in user's local timezone
                         SimpleDateFormat outputFormat = new SimpleDateFormat("MMM dd", Locale.getDefault());
-                        outputFormat.setTimeZone(TimeZone.getDefault());
+                        outputFormat.setTimeZone(TimeZone.getDefault()); // Use local timezone for display
                         return outputFormat.format(messageDate);
                     }
                 }

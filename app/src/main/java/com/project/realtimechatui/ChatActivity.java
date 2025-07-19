@@ -48,6 +48,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import retrofit2.Call;
@@ -482,6 +483,7 @@ public class ChatActivity extends AppCompatActivity implements
 
             // If timestamp is in ISO format, parse it
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+            sdf.setTimeZone(TimeZone.getTimeZone("UTC")); // Parse as UTC
             Date date = sdf.parse(timestamp);
             return date != null ? date.getTime() : System.currentTimeMillis();
 

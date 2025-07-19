@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.TimeZone;
 
 public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
@@ -222,11 +223,17 @@ public class ChatMessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             if (timestamp.length() == 13) {
                 timestampLong = Long.parseLong(timestamp);
             } else {
-                timestampLong = System.currentTimeMillis();
+                // Parse UTC timestamp and convert to local
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+                sdf.setTimeZone(TimeZone.getTimeZone("UTC")); // Parse as UTC
+                Date date = sdf.parse(timestamp);
+                timestampLong = date != null ? date.getTime() : System.currentTimeMillis();
             }
 
-            Date date = new Date(timestampLong);
-            return timeFormat.format(date);
+            Date localDate = new Date(timestampLong);
+            SimpleDateFormat localFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            localFormat.setTimeZone(TimeZone.getDefault()); // Display in local timezone
+            return localFormat.format(localDate);
         } catch (Exception e) {
             return "";
         }
