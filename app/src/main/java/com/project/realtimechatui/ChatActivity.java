@@ -1,14 +1,30 @@
 
 package com.project.realtimechatui;
 
+import static com.project.realtimechatui.utils.Constants.MAX_IMAGE_SIZE;
 import static com.project.realtimechatui.utils.Constants.TYPING_TIMEOUT;
 
+import android.Manifest;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
@@ -17,8 +33,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
+import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -38,15 +59,22 @@ import com.project.realtimechatui.utils.Constants;
 import com.project.realtimechatui.utils.SharedPrefManager;
 import com.project.realtimechatui.websocket.WebSocketChatManager;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -66,7 +94,7 @@ public class ChatActivity extends AppCompatActivity implements
     private ImageView ivBack, ivUserProfile;
     private RecyclerView rvMessages;
     private EditText etMessage;
-    private CardView cvSend;
+    private CardView cvSend, cvAttachment;
 
     // User and Chat Data
     private Long targetUserId;
@@ -92,6 +120,16 @@ public class ChatActivity extends AppCompatActivity implements
     private String lastSentContent = "";
     private long lastSentTime = 0;
 
+    // Image handling
+    private ActivityResultLauncher<Intent> imagePickerLauncher;
+//    private ActivityResultLauncher<Intent> cameraLauncher;
+    private ActivityResultLauncher<String> permissionLauncher;
+    private ActivityResultLauncher<String[]> multiplePermissionLauncher;
+//    private ActivityResultLauncher<Boolean> cameraLauncher;
+private ActivityResultLauncher<Uri> cameraLauncher;
+    private Uri currentPhotoUri;
+    private String pendingAction;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -108,6 +146,7 @@ public class ChatActivity extends AppCompatActivity implements
         typingUsers = new HashSet<>();
 
         initViews();
+        setupImageHandling();
         getIntentData();
         setupRecyclerView();
         setupWebSocket();
@@ -141,8 +180,12 @@ public class ChatActivity extends AppCompatActivity implements
         rvMessages = findViewById(R.id.rvMessages);
         etMessage = findViewById(R.id.etMessage);
         cvSend = findViewById(R.id.cvSend);
+        cvAttachment = findViewById(R.id.cvAttachment);
 
         ivBack.setOnClickListener(v -> finish());
+
+        // Image attachment button click listener
+        cvAttachment.setOnClickListener(v -> showImagePickerDialog());
 
         // Initially hide typing indicator
         tvTypingIndicator.setVisibility(View.GONE);
@@ -151,6 +194,397 @@ public class ChatActivity extends AppCompatActivity implements
         updateConnectionStatus(Constants.CONNECTION_STATE_CONNECTING);
     }
 
+    // Handle image logic for add and send image to chat
+    private void setupImageHandling() {
+        // Setup image picker launcher
+        imagePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    Log.d(TAG, "Image picker result received");
+
+                    // Ensure WebSocket is connected after permission dialog
+                    ensureWebSocketConnection();
+
+                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                        Uri imageUri = result.getData().getData();
+                        if (imageUri != null) {
+                            handleSelectedImage(imageUri);
+                        }
+                    }
+                });
+
+        // Setup camera launcher
+        cameraLauncher = registerForActivityResult(
+                new ActivityResultContracts.TakePicture(),
+                success -> {
+                    Log.d(TAG, "Camera result received: " + success);
+
+                    // Ensure WebSocket is connected after permission dialog
+                    ensureWebSocketConnection();
+
+                    if (success && currentPhotoUri != null) {
+                        handleSelectedImage(currentPhotoUri);
+                    }
+                });
+
+        // Setup permission launcher
+        permissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    Log.d(TAG, "Camera permission result: " + isGranted);
+
+                    // Ensure WebSocket is connected after permission dialog
+                    ensureWebSocketConnection();
+
+                    if (isGranted) {
+                        openCamera();
+                    } else {
+                        showError("Camera permission is required to take photos");
+                    }
+                });
+
+        // Setup multiple permissions launcher for gallery (Android 13+)
+        multiplePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestMultiplePermissions(),
+                result -> {
+                    Log.d(TAG, "Multiple permissions result: " + result);
+                    ensureWebSocketConnection();
+
+                    boolean hasImagePermission = false;
+                    boolean hasCameraPermission = Boolean.TRUE.equals(result.get(Manifest.permission.CAMERA));
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        // Android 13+
+                        hasImagePermission = Boolean.TRUE.equals(result.get(Manifest.permission.READ_MEDIA_IMAGES));
+                    } else {
+                        // Android 12 and below
+                        hasImagePermission = Boolean.TRUE.equals(result.get(Manifest.permission.READ_EXTERNAL_STORAGE));
+                    }
+
+                    if (pendingAction != null) {
+                        switch (pendingAction) {
+                            case "gallery":
+                                if (hasImagePermission) {
+                                    openGallery();
+                                } else {
+                                    showError("Storage permission is required to access photos");
+                                }
+                                break;
+                            case "camera":
+                                if (hasCameraPermission) {
+                                    openCamera();
+                                } else {
+                                    showError("Camera permission is required to take photos");
+                                }
+                                break;
+                        }
+                        pendingAction = null;
+                    }
+                });
+    }
+
+    // Add this helper method
+    private void ensureWebSocketConnection() {
+        if (!webSocketManager.isConnected()) {
+            Log.d(TAG, "WebSocket disconnected, reconnecting...");
+            webSocketManager.connect();
+
+            // Wait and rejoin chat room
+            if (chatRoomId != null) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (webSocketManager.isConnected()) {
+                        webSocketManager.subscribeToChatRoom(chatRoomId);
+                        webSocketManager.joinChatRoom(chatRoomId);
+                        updateConnectionStatus(Constants.CONNECTION_STATE_CONNECTED);
+                    }
+                }, 1500);
+            }
+        }
+    }
+
+    private void showImagePickerDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Select Image");
+
+        String[] options = {"Gallery", "Camera"};
+        builder.setItems(options, (dialog, which) -> {
+            switch (which) {
+                case 0:
+                    checkGalleryPermissionAndOpen();
+                    break;
+                case 1:
+                    checkCameraPermissionAndOpen();
+                    break;
+            }
+        });
+
+        builder.show();
+    }
+
+    private void checkGalleryPermissionAndOpen() {
+        if (hasStoragePermission()) {
+            openGallery();
+        } else {
+            pendingAction = "gallery";
+            requestStoragePermission();
+        }
+    }
+
+    private void openGallery() {
+        Intent intent;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            // Use ACTION_OPEN_DOCUMENT for better compatibility with modern Android
+            intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("image/*");
+
+            // Add extra MIME types for better compatibility
+            String[] mimeTypes = {"image/jpeg", "image/png", "image/gif", "image/webp"};
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+        } else {
+            // Fallback for older versions
+            intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+            intent.setType("image/*");
+        }
+
+        imagePickerLauncher.launch(intent);
+    }
+
+    private boolean hasStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ (API 33+) - Granular media permissions
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                    == PackageManager.PERMISSION_GRANTED;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 6+ (API 23+) - Runtime permissions
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED;
+        } else {
+            // Below Android 6 - permissions granted at install time
+            return true;
+        }
+    }
+
+    private void requestStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ - Request new granular media permissions
+            String[] permissions = {
+                    Manifest.permission.READ_MEDIA_IMAGES
+            };
+            multiplePermissionLauncher.launch(permissions);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 6+ - Request legacy storage permission
+            String[] permissions = {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+            multiplePermissionLauncher.launch(permissions);
+        } else {
+            // Below Android 6 - no runtime permissions needed
+            openGallery();
+        }
+    }
+
+    private void checkCameraPermissionAndOpen() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED) {
+            openCamera();
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                pendingAction = "camera";
+                String[] permissions = {Manifest.permission.CAMERA};
+                multiplePermissionLauncher.launch(permissions);
+            } else {
+                // Below Android 6 - permissions granted at install time
+                openCamera();
+            }
+        }
+    }
+
+    private void openCamera() {
+        try {
+            // Create a temporary file for the photo
+            currentPhotoUri = createImageFileUri();
+            if (currentPhotoUri != null) {
+                cameraLauncher.launch(currentPhotoUri);
+            } else {
+                showError("Unable to create temporary file for camera");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening camera", e);
+            showError("Camera not available: " + e.getMessage());
+        }
+    }
+
+    private Uri createImageFileUri() {
+        try {
+            // Create an image file name with timestamp
+            String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+            String imageFileName = "JPEG_" + timeStamp + "_";
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ - Use MediaStore for scoped storage
+                ContentResolver resolver = getContentResolver();
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, imageFileName + ".jpg");
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+
+                return resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            } else {
+                // Android 9 and below - Use external storage
+                File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+                if (storageDir != null) {
+                    File imageFile = File.createTempFile(imageFileName, ".jpg", storageDir);
+                    return FileProvider.getUriForFile(this,
+                            getPackageName() + ".fileprovider", imageFile);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating image file URI", e);
+        }
+        return null;
+    }
+
+    private void handleSelectedImage(Uri imageUri) {
+        try {
+            // Handle both content:// and file:// URIs
+            InputStream inputStream = getContentResolver().openInputStream(imageUri);
+            if (inputStream != null) {
+                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                inputStream.close();
+
+                if (bitmap != null) {
+                    // Get filename from URI
+                    String filename = getFileNameFromUri(imageUri);
+                    sendImageMessage(bitmap, filename);
+                } else {
+                    showError("Failed to decode image");
+                }
+            } else {
+                showError("Failed to open image stream");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading selected image", e);
+            showError("Failed to load selected image: " + e.getMessage());
+        }
+    }
+
+    private String getFileNameFromUri(Uri uri) {
+        String filename = "image.jpg";
+
+        if (uri.getScheme() != null && uri.getScheme().equals("content")) {
+            try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (nameIndex >= 0) {
+                        String displayName = cursor.getString(nameIndex);
+                        if (displayName != null && !displayName.isEmpty()) {
+                            filename = displayName;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Error getting filename from URI", e);
+            }
+        } else if (uri.getPath() != null) {
+            filename = new File(uri.getPath()).getName();
+        }
+
+        // Ensure proper extension
+        if (!filename.toLowerCase().endsWith(".jpg") &&
+                !filename.toLowerCase().endsWith(".jpeg") &&
+                !filename.toLowerCase().endsWith(".png")) {
+            filename += ".jpg";
+        }
+
+        return filename;
+    }
+
+    private void handleCameraImage(Bitmap bitmap) {
+        if (bitmap != null) {
+            sendImageMessage(bitmap, "camera_image.jpg");
+        }
+    }
+
+    private void sendImageMessage(Bitmap bitmap, String filename) {
+        if (chatRoomId == null || !webSocketManager.isConnected()) {
+            showError("Not connected to chat server");
+            return;
+        }
+
+        if (isSendingMessage) {
+            return;
+        }
+
+        isSendingMessage = true;
+
+        try {
+            // Compress and convert bitmap to base64
+            Bitmap compressedBitmap = compressImage(bitmap);
+            String base64Image = bitmapToBase64(compressedBitmap);
+            String contentType = "image/jpeg";
+
+            // Create message payload for WebSocket
+            Map<String, Object> messagePayload = new HashMap<>();
+            messagePayload.put("imageData", "data:" + contentType + ";base64," + base64Image);
+            messagePayload.put("filename", filename);
+            messagePayload.put("contentType", contentType);
+
+            // Send via WebSocket
+            webSocketManager.sendImageMessage(chatRoomId, messagePayload);
+
+            Log.d(TAG, "Image message sent via WebSocket");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending image message", e);
+            showError("Failed to send image: " + e.getMessage());
+        } finally {
+            // Reset sending state after a delay
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                isSendingMessage = false;
+            }, 2000);
+        }
+    }
+
+    private Bitmap compressImage(Bitmap original) {
+        int width = original.getWidth();
+        int height = original.getHeight();
+
+        // Calculate scaling factor
+        float scaleFactor = Math.min(
+                (float) MAX_IMAGE_SIZE / width,
+                (float) MAX_IMAGE_SIZE / height
+        );
+
+        if (scaleFactor < 1.0f) {
+            int newWidth = Math.round(width * scaleFactor);
+            int newHeight = Math.round(height * scaleFactor);
+            return Bitmap.createScaledBitmap(original, newWidth, newHeight, true);
+        }
+
+        return original;
+    }
+
+    private String bitmapToBase64(Bitmap bitmap) {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        // Use higher quality for smaller images, lower for larger ones
+        int quality = bitmap.getByteCount() > 1000000 ? 70 : 85; // 1MB threshold
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, byteArrayOutputStream);
+
+        byte[] byteArray = byteArrayOutputStream.toByteArray();
+
+        try {
+            byteArrayOutputStream.close();
+        } catch (IOException e) {
+            Log.w(TAG, "Error closing ByteArrayOutputStream", e);
+        }
+
+        return Base64.encodeToString(byteArray, Base64.NO_WRAP);
+    }
+
+
+    // Get intend data from user
     private void getIntentData() {
         targetUserId = getIntent().getLongExtra("user_id", -1);
         targetUsername = getIntent().getStringExtra("username");
@@ -179,6 +613,7 @@ public class ChatActivity extends AppCompatActivity implements
         tvUserStatus.setText("Online");
     }
 
+    // Go to ChatMessageAdapter for chat content and position
     private void setupRecyclerView() {
         messageAdapter = new ChatMessageAdapter(this);
         layoutManager = new LinearLayoutManager(this);
@@ -678,14 +1113,29 @@ public class ChatActivity extends AppCompatActivity implements
     @Override
     protected void onResume() {
         super.onResume();
+        Log.d(TAG, "ChatActivity onResume - checking WebSocket connection");
+
         if (!webSocketManager.isConnected()) {
+            Log.d(TAG, "WebSocket not connected, attempting reconnection");
             webSocketManager.connect();
+        }
+
+        // Rejoin chat room after reconnection
+        if (chatRoomId != null) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (webSocketManager.isConnected()) {
+                    webSocketManager.subscribeToChatRoom(chatRoomId);
+                    webSocketManager.joinChatRoom(chatRoomId);
+                }
+            }, 1000); // Wait 1 second for connection to establish
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        Log.d(TAG, "ChatActivity onPause - stopping typing indicator");
+
         // Stop typing indicator when leaving
         stopTyping();
     }
@@ -703,6 +1153,28 @@ public class ChatActivity extends AppCompatActivity implements
         if (chatRoomId != null && webSocketManager.isConnected()) {
             webSocketManager.leaveChatRoom(chatRoomId);
             webSocketManager.unsubscribeFromChatRoom(chatRoomId);
+        }
+    }
+
+    // Add this method to handle image selection result
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        // Ensure WebSocket is reconnected after returning from gallery
+        if (!webSocketManager.isConnected()) {
+            Log.d(TAG, "Reconnecting WebSocket after returning from external activity");
+            webSocketManager.connect();
+
+            // Rejoin chat room
+            if (chatRoomId != null) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (webSocketManager.isConnected()) {
+                        webSocketManager.subscribeToChatRoom(chatRoomId);
+                        webSocketManager.joinChatRoom(chatRoomId);
+                    }
+                }, 1000);
+            }
         }
     }
 }

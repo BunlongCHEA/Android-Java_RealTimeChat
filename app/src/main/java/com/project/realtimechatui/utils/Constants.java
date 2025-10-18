@@ -72,4 +72,8 @@ public class Constants {
     public static final long TYPING_INDICATOR_DELAY = 3000; // 3 seconds
     public static final int HEARTBEAT_INTERVAL = 10000; // 10 seconds
     public static final int TYPING_TIMEOUT = 3000; // 3 seconds
+
+    // Handle Image Constants
+    public static final int PERMISSION_REQUEST_CODE = 100;
+    public static final int MAX_IMAGE_SIZE = 1024; // Max width/height for compressed image
 }

@@ -1,5 +1,6 @@
 package com.project.realtimechatui.websocket;
 
+import android.annotation.SuppressLint;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -179,6 +180,7 @@ public class WebSocketChatManager {
         }
     }
 
+    @SuppressLint("CheckResult")
     public void leaveChatRoom() {
         if (currentChatRoomId != null && isConnected()) {
             try {
@@ -204,69 +206,71 @@ public class WebSocketChatManager {
         currentChatRoomTopic = null;
     }
 
-    public void sendMessage(String content) {
-        if (!isConnected() || currentChatRoomId == null) {
-            Log.w(TAG, "Cannot send message: not connected or no chat room");
-            if (messageListener != null) {
-                messageListener.onError("Not connected or no chat room selected");
-            }
-            return;
-        }
-
-        try {
-            Map<String, Object> messagePayload = new HashMap<>();
-            messagePayload.put("content", content);
-            messagePayload.put("type", Constants.MESSAGE_TYPE_TEXT);
-
-            stompClient.send(Constants.WS_SEND_MESSAGE + currentChatRoomId, gson.toJson(messagePayload))
-                    .compose(applySchedulers())
-                    .subscribe(() -> {
-                        Log.d(TAG, "Message sent successfully");
-                    }, throwable -> {
-                        Log.e(TAG, "Error sending message", throwable);
-                        if (messageListener != null) {
-                            messageListener.onError("Failed to send message: " + throwable.getMessage());
-                        }
-                    });
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error preparing message", e);
-            if (messageListener != null) {
-                messageListener.onError("Failed to send message: " + e.getMessage());
-            }
-        }
-    }
-
-    public void sendTypingIndicator(boolean isTyping) {
-        if (!isConnected() || currentChatRoomId == null) {
-            return;
-        }
-
-        try {
-            Map<String, Object> typingPayload = new HashMap<>();
-            typingPayload.put("isTyping", isTyping);
-
-            stompClient.send(Constants.WS_TYPING_INDICATOR + currentChatRoomId, gson.toJson(typingPayload))
-                    .compose(applySchedulers())
-                    .subscribe(() -> {
-                        Log.d(TAG, "Typing indicator sent: " + isTyping);
-                    }, throwable -> {
-                        Log.e(TAG, "Error sending typing indicator", throwable);
-                    });
-
-            // Auto-stop typing indicator after delay
-            if (isTyping) {
-                if (typingStopRunnable != null) {
-                    typingHandler.removeCallbacks(typingStopRunnable);
-                }
-                typingStopRunnable = () -> sendTypingIndicator(false);
-                typingHandler.postDelayed(typingStopRunnable, Constants.TYPING_INDICATOR_DELAY);
-            }
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error sending typing indicator", e);
-        }
-    }
+//    @SuppressLint("CheckResult")
+//    public void sendMessage(String content) {
+//        if (!isConnected() || currentChatRoomId == null) {
+//            Log.w(TAG, "Cannot send message: not connected or no chat room");
+//            if (messageListener != null) {
+//                messageListener.onError("Not connected or no chat room selected");
+//            }
+//            return;
+//        }
+//
+//        try {
+//            Map<String, Object> messagePayload = new HashMap<>();
+//            messagePayload.put("content", content);
+//            messagePayload.put("type", Constants.MESSAGE_TYPE_TEXT);
+//
+//            stompClient.send(Constants.WS_SEND_MESSAGE + currentChatRoomId, gson.toJson(messagePayload))
+//                    .compose(applySchedulers())
+//                    .subscribe(() -> {
+//                        Log.d(TAG, "Message sent successfully");
+//                    }, throwable -> {
+//                        Log.e(TAG, "Error sending message", throwable);
+//                        if (messageListener != null) {
+//                            messageListener.onError("Failed to send message: " + throwable.getMessage());
+//                        }
+//                    });
+//
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error preparing message", e);
+//            if (messageListener != null) {
+//                messageListener.onError("Failed to send message: " + e.getMessage());
+//            }
+//        }
+//    }
+//
+//    @SuppressLint("CheckResult")
+//    public void sendTypingIndicator(boolean isTyping) {
+//        if (!isConnected() || currentChatRoomId == null) {
+//            return;
+//        }
+//
+//        try {
+//            Map<String, Object> typingPayload = new HashMap<>();
+//            typingPayload.put("isTyping", isTyping);
+//
+//            stompClient.send(Constants.WS_TYPING_INDICATOR + currentChatRoomId, gson.toJson(typingPayload))
+//                    .compose(applySchedulers())
+//                    .subscribe(() -> {
+//                        Log.d(TAG, "Typing indicator sent: " + isTyping);
+//                    }, throwable -> {
+//                        Log.e(TAG, "Error sending typing indicator", throwable);
+//                    });
+//
+//            // Auto-stop typing indicator after delay
+//            if (isTyping) {
+//                if (typingStopRunnable != null) {
+//                    typingHandler.removeCallbacks(typingStopRunnable);
+//                }
+//                typingStopRunnable = () -> sendTypingIndicator(false);
+//                typingHandler.postDelayed(typingStopRunnable, Constants.TYPING_INDICATOR_DELAY);
+//            }
+//
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error sending typing indicator", e);
+//        }
+//    }
 
     private void handleIncomingMessage(StompMessage stompMessage) {
         try {
@@ -402,8 +406,6 @@ public class WebSocketChatManager {
         return currentChatRoomId;
     }
 
-    // Add these methods to WebSocketChatManager.java
-
     public void sendTypingIndicator(Long chatRoomId, boolean isTyping) {
         if (!isConnected() || currentChatRoomId == null || !currentChatRoomId.equals(chatRoomId)) {
             return;
@@ -491,6 +493,7 @@ public class WebSocketChatManager {
         }
     }
 
+    @SuppressLint("CheckResult")
     public void joinChatRoom(Long chatRoomId) {
         if (!isConnected()) {
             Log.w(TAG, "Not connected to WebSocket");
@@ -597,12 +600,13 @@ public class WebSocketChatManager {
         // Disposables will be automatically disposed when activity is destroyed
     }
 
+    // Handle sending the message without duplicate message
     public void sendMessage(Long chatRoomId, String content) {
         if (!isConnected() || currentChatRoomId == null || !currentChatRoomId.equals(chatRoomId)) {
             return;
         }
 
-        // Prevent duplicate sends - ADD THIS
+        // Add this to - Prevent duplicate sends
         if (isSendingMessage || content == null || content.trim().isEmpty()) {
             Log.w(TAG, "Cannot send message: already sending or empty content");
             return;
@@ -638,6 +642,48 @@ public class WebSocketChatManager {
             isSendingMessage = false;
             if (messageListener != null) {
                 messageListener.onError("Failed to send message");
+            }
+        }
+    }
+
+    // Handle sent image web socket
+    public void sendImageMessage(Long chatRoomId, Map<String, Object> imagePayload) {
+        if (!isConnected() || currentChatRoomId == null || !currentChatRoomId.equals(chatRoomId)) {
+            Log.w(TAG, "Cannot send image: not connected or wrong chat room");
+            return;
+        }
+
+        if (isSendingMessage) {
+            Log.w(TAG, "Already sending a message, please wait");
+            return;
+        }
+
+        try {
+            isSendingMessage = true;
+
+            String destination = "/app/chat.sendImage/" + chatRoomId;
+            String jsonData = gson.toJson(imagePayload);
+
+            Disposable disposable = stompClient.send(destination, jsonData)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(() -> {
+                        Log.d(TAG, "Image message sent successfully to: " + destination);
+                        isSendingMessage = false;
+                    }, throwable -> {
+                        Log.e(TAG, "Error sending image message", throwable);
+                        isSendingMessage = false;
+                        if (messageListener != null) {
+                            messageListener.onError("Failed to send image message");
+                        }
+                    });
+
+            compositeDisposable.add(disposable);
+        } catch (Exception e) {
+            Log.e(TAG, "Error preparing image message", e);
+            isSendingMessage = false;
+            if (messageListener != null) {
+                messageListener.onError("Failed to send image message: " + e.getMessage());
             }
         }
     }
